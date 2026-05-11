@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>乌鲁鲁星</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Stars particle layer (between bg and content) -->
+  <canvas class="stars-canvas" id="stars-canvas"></canvas>
+
+  <!-- Connection toast capsule -->
+  <div class="capsule-toast" id="capsule-toast">
+    <span class="capsule-dot"></span>
+    <span class="capsule-text">你来了 ✦</span>
+  </div>
+
+  <!-- Page content (scrollable area above bottom nav) -->
+  <div class="page-content">
+
+    <!-- === TAB: Home (bookshelf) === -->
+    <section class="tab-view active" id="tab-home">
+      <!-- Top card -->
+      <header class="top-card-wrapper">
+        <div class="glass-card">
+          <div class="avatars-row">
+            <div class="avatar-block">
+              <div class="avatar bot-avatar" id="bot-avatar-wrapper">
+                <img id="bot-avatar-img" src="" alt="" />
+                <span class="avatar-fallback" id="bot-avatar-fallback">🐰</span>
+              </div>
+              <input type="file" id="bot-avatar-input" accept="image/*" hidden />
+              <span class="nickname editable" id="bot-nickname" contenteditable="false">沈星回</span>
+              <button class="edit-btn" id="btn-edit-bot-nickname" title="修改昵称">✎</button>
+            </div>
+            <div class="avatar-divider">
+              <span class="divider-symbol">♡</span>
+            </div>
+            <div class="avatar-block">
+              <div class="avatar user-avatar" id="user-avatar-wrapper">
+                <img id="user-avatar-img" src="" alt="" />
+                <span class="avatar-fallback" id="user-avatar-fallback">🦊</span>
+              </div>
+              <input type="file" id="user-avatar-input" accept="image/*" hidden />
+              <span class="nickname editable" id="user-nickname" contenteditable="false">你</span>
+              <button class="edit-btn" id="btn-edit-user-nickname" title="修改昵称">✎</button>
+            </div>
+          </div>
+          <div class="progress-section">
+            <div class="progress-label"><span>共读进度</span></div>
+            <div class="progress-bar-wrapper">
+              <div class="progress-track">
+                <div class="progress-fill bot-progress" id="bot-progress" style="width: 0%"></div>
+              </div>
+              <div class="progress-track progress-track-reverse">
+                <div class="progress-fill user-progress" id="user-progress" style="width: 0%"></div>
+              </div>
+            </div>
+            <div class="progress-names">
+              <span class="progress-name" id="progress-bot-name">沈星回</span>
+              <span class="progress-name" id="progress-user-name">你</span>
+            </div>
+            <div class="progress-book-select">
+              <select id="progress-book-select">
+                <option value="">选择书籍</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Lace divider -->
+      <div class="lace-divider">
+        <svg viewBox="0 0 600 20" preserveAspectRatio="none" class="lace-svg">
+          <path d="M0,10 C25,0 25,20 50,10 C75,0 75,20 100,10 C125,0 125,20 150,10 C175,0 175,20 200,10 C225,0 225,20 250,10 C275,0 275,20 300,10 C325,0 325,20 350,10 C375,0 375,20 400,10 C425,0 425,20 450,10 C475,0 475,20 500,10 C525,0 525,20 550,10 C575,0 575,20 600,10" fill="none" stroke="rgba(180,160,210,0.35)" stroke-width="1.5"/>
+        </svg>
+      </div>
+
+      <!-- Bookshelf -->
+      <section class="shelf-section">
+        <div class="shelf-header">
+          <span class="shelf-title">书架</span>
+          <button class="btn-upload" id="btn-upload">+ 上传</button>
+          <input type="file" id="file-input" accept=".epub" hidden />
+        </div>
+        <div class="shelf-grid-wrapper">
+          <div class="shelf-grid" id="shelf-grid"></div>
+          <div class="shelf-empty" id="shelf-empty">
+            <p>还没有书</p>
+            <p class="shelf-empty-hint">上传一本 .epub 开始阅读</p>
+          </div>
+        </div>
+        <div class="shelf-nav" id="shelf-nav">
+          <button class="shelf-nav-btn" id="btn-prev-page" title="上一栏">‹</button>
+          <div class="shelf-pagination" id="shelf-pagination"></div>
+          <button class="shelf-nav-btn" id="btn-next-page" title="下一栏">›</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- === TAB: Tools === -->
+    <section class="tab-view" id="tab-tools">
+      <div class="tools-container">
+        <h2 class="tools-title">🔧 工具箱</h2>
+
+        <!-- Memory Management Section -->
+        <div class="tools-section">
+          <div class="tools-section-header">
+            <span class="tools-section-icon">🧠</span>
+            <span class="tools-section-title">记忆管理</span>
+            <span class="tools-section-hint">管理乌鲁鲁星对话记录，删除不需要的记忆</span>
+          </div>
+
+          <!-- Active sessions -->
+          <div class="memory-group" id="memory-active-group">
+            <div class="memory-group-header">
+              <span class="memory-group-label">💬 当前会话</span>
+              <span class="memory-group-count" id="active-count">0</span>
+            </div>
+            <div class="memory-list" id="memory-active-list">
+              <div class="memory-empty">暂无活跃会话</div>
+            </div>
+          </div>
+
+          <!-- Archived sessions -->
+          <div class="memory-group" id="memory-archive-group">
+            <div class="memory-group-header">
+              <span class="memory-group-label">📦 归档记录</span>
+              <span class="memory-group-count" id="archive-count">0</span>
+              <button class="memory-refresh-btn" id="btn-refresh-memory" title="刷新">↻</button>
+            </div>
+            <div class="memory-list" id="memory-archive-list">
+              <div class="memory-empty">暂无归档记录</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Memory detail modal -->
+      <div class="memory-modal" id="memory-modal">
+        <div class="memory-modal-content">
+          <div class="memory-modal-header">
+            <span class="memory-modal-title" id="memory-modal-title">对话详情</span>
+            <button class="memory-modal-close" id="memory-modal-close">×</button>
+          </div>
+          <div class="memory-modal-body" id="memory-modal-body"></div>
+          <div class="memory-modal-footer">
+            <button class="memory-modal-delete-all" id="memory-modal-delete-all">🗑 删除整段记录</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- === TAB: Notes === -->
+    <section class="tab-view" id="tab-notes">
+      <div class="notes-container" id="notes-content">
+        <div class="tab-placeholder">
+          <span class="tab-placeholder-icon">✦</span>
+          <p>笔记</p>
+          <p class="tab-placeholder-hint">你的划线和收藏会出现在这里</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Reader view (full screen, hides bottom nav) -->
+  <div class="reader-view" id="reader-view">
+    <!-- Reader top bar -->
+    <div class="reader-topbar">
+      <button class="reader-back-btn" id="reader-back-btn">← 返回</button>
+      <span class="reader-chapter-name" id="reader-chapter-name">-</span>
+      <button class="reader-sidebar-toggle" id="reader-sidebar-toggle" title="目录">☰</button>
+    </div>
+
+    <!-- Sidebar (chapter list) -->
+    <aside class="reader-sidebar" id="reader-sidebar">
+      <div class="reader-sidebar-header">
+        <span>目录</span>
+        <button class="reader-sidebar-close" id="reader-sidebar-close">×</button>
+      </div>
+      <ul class="reader-chapter-list" id="reader-chapter-list"></ul>
+    </aside>
+    <div class="reader-sidebar-overlay" id="reader-sidebar-overlay"></div>
+
+    <!-- Reading content -->
+    <article class="reader-body" id="reader-body">
+      <p class="reader-placeholder">加载中...</p>
+    </article>
+
+    <!-- Chapter nav (prev/next) + highlight -->
+    <div class="reader-chapter-nav">
+      <button class="reader-nav-btn" id="reader-prev-ch">‹ 上一章</button>
+      <button class="reader-highlight-btn" id="reader-highlight-btn" title="划线选中文字">✦ 划线</button>
+      <button class="reader-nav-btn" id="reader-next-ch">下一章 ›</button>
+    </div>
+
+    <!-- Chat FAB -->
+    <button class="chat-fab" id="chat-fab" title="聊聊">💬</button>
+
+    <!-- Chat bubble panel -->
+    <div class="chat-bubble-panel" id="chat-bubble-panel">
+      <div class="chat-bubble-header" id="chat-bubble-drag-handle">
+        <span>💬 聊聊这本书</span>
+        <span class="chat-drag-hint">长按拖动</span>
+        <button class="chat-bubble-close" id="chat-bubble-close">×</button>
+      </div>
+      <div class="chat-bubble-messages" id="chat-bubble-messages">
+        <div class="chat-bubble-welcome">我在听 ✦</div>
+      </div>
+      <div class="chat-bubble-input">
+        <textarea id="chat-bubble-textarea" rows="2" placeholder="想说点什么..."></textarea>
+        <button class="chat-bubble-send" id="chat-bubble-send">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom navigation bar -->
+  <nav class="bottom-nav">
+    <button class="nav-item" data-tab="tools" id="nav-tools">
+      <span class="nav-icon">🔧</span>
+      <span class="nav-label">工具箱</span>
+    </button>
+    <button class="nav-item nav-center" data-tab="home" id="nav-home">
+      <span class="nav-center-circle">
+        <span class="nav-center-icon">✦</span>
+      </span>
+    </button>
+    <button class="nav-item" data-tab="notes" id="nav-notes">
+      <span class="nav-icon">📑</span>
+      <span class="nav-label">笔记</span>
+    </button>
+  </nav>
+
+  <script src="/app.js"></script>
+</body>
+</html>

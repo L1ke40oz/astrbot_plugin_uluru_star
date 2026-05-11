@@ -1,0 +1,116 @@
+{
+  "webui": {
+    "description": "乌鲁鲁星 WebUI",
+    "type": "object",
+    "hint": "网页服务配置。可以通过浏览器访问乌鲁鲁星。",
+    "items": {
+      "enabled": {
+        "description": "启用 WebUI",
+        "type": "bool",
+        "hint": "是否启动网页服务",
+        "default": true
+      },
+      "host": {
+        "description": "监听地址",
+        "type": "string",
+        "hint": "127.0.0.1 = 仅本机访问；0.0.0.0 = 局域网内其他设备也能访问（如手机）",
+        "options": ["127.0.0.1", "0.0.0.0"],
+        "default": "0.0.0.0"
+      },
+      "port": {
+        "description": "端口",
+        "type": "int",
+        "hint": "端口号",
+        "default": 1016
+      }
+    }
+  },
+  "auto_reply_on_highlight": {
+    "description": "划线时自动触发回复",
+    "type": "bool",
+    "hint": "划线时是否自动触发回复",
+    "default": true
+  },
+  "auto_reply_on_review": {
+    "description": "书评时自动触发回复",
+    "type": "bool",
+    "hint": "写书评时是否自动触发回复",
+    "default": true
+  },
+  "auto_reply_on_note": {
+    "description": "纸条时自动触发回复",
+    "type": "bool",
+    "hint": "留纸条时是否自动触发回复",
+    "default": true
+  },
+  "reply_to_message_channel": {
+    "description": "同时发送到消息通道",
+    "type": "bool",
+    "hint": "是否同时将 bot 的回复发送到消息通道（如 QQ）。关闭则仅在乌鲁鲁星网页内显示。",
+    "default": false
+  },
+  "bot_reading": {
+    "description": "阅读设置",
+    "type": "object",
+    "hint": "他会自己阅读书架上的书，偶尔主动分享读后感。",
+    "items": {
+      "enabled": {
+        "description": "启用 Bot 自主阅读",
+        "type": "bool",
+        "hint": "开启后 Bot 会在后台自己阅读书籍，并有概率主动发消息分享感想",
+        "default": true
+      },
+      "reading_interval_min": {
+        "description": "阅读间隔下限（分钟）",
+        "type": "int",
+        "hint": "Bot 两次阅读之间的最短等待时间",
+        "default": 120
+      },
+      "reading_interval_max": {
+        "description": "阅读间隔上限（分钟）",
+        "type": "int",
+        "hint": "Bot 两次阅读之间的最长等待时间",
+        "default": 300
+      },
+      "message_probability": {
+        "description": "主动消息概率（%）",
+        "type": "int",
+        "hint": "Bot 读完一章后发送主动消息的概率，0-100",
+        "default": 30
+      },
+      "no_interrupt_minutes": {
+        "description": "聊天保护时间（分钟）",
+        "type": "int",
+        "hint": "用户最近 N 分钟内有消息活动时，不发送主动消息，避免打断聊天",
+        "default": 5
+      }
+    }
+  },
+  "special": {
+    "description": "高级设置",
+    "type": "object",
+    "hint": "人格和模型选择",
+    "items": {
+      "provider": {
+        "description": "固定 Provider",
+        "hint": "为空则使用 AstrBot 当前默认 Provider",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider"
+      },
+      "persona": {
+        "description": "固定人格",
+        "hint": "为空则使用 AstrBot 当前默认人格",
+        "type": "string",
+        "default": "",
+        "_special": "select_persona"
+      },
+      "persona_override": {
+        "description": "人格覆盖（手动）",
+        "hint": "如果上方的人格选择没有生效，可手动将人格设置复制到此处。留空则使用上方选择的人格。",
+        "type": "text",
+        "default": ""
+      }
+    }
+  }
+}

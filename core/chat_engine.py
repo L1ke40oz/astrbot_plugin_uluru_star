@@ -1,0 +1,173 @@
+"""
+Chat Engine - handles bot responses to reading interactions.
+
+The chat context only lives within a session's lifecycle.
+When the session ends, the context is archived and won't be sent to the LLM again.
+This keeps conversations fresh and contextual to the current reading moment.
+
+Persona resolution:
+  1. If persona_override is set in plugin config, use it
+  2. Otherwise, use AstrBot's configured default persona
+"""
+
+from typing import Any
+
+from astrbot.api import logger
+from astrbot.api.star import Context
+
+from .session_manager import SessionManager
+
+
+class ChatEngine:
+    def __init__(
+        self,
+        context: Context,
+        config: dict[str, Any],
+        session_manager: SessionManager,
+    ):
+        self.context = context
+        self.config = config
+        self.session_manager = session_manager
+
+    async def _get_persona_prompt(self) -> str:
+        """Get the persona prompt. Uses plugin override if set, otherwise AstrBot's default."""
+        # check manual override first
+        special = self.config.get("special", {})
+        override = special.get("persona_override", "").strip()
+        if override:
+            return override
+
+        # check if a specific persona is selected via _special: select_persona
+        persona_id = special.get("persona", "").strip()
+        if persona_id:
+            try:
+                persona = self.context.persona_manager.get_persona_v3_by_id(persona_id)
+                if persona and persona.get("prompt"):
+                    return persona["prompt"]
+            except Exception as e:
+                logger.warning(f"Failed to get selected persona '{persona_id}': {e}")
+
+        # fallback to AstrBot's default persona
+        try:
+            persona = await self.context.persona_manager.get_default_persona_v3()
+            if persona and persona.get("prompt"):
+                return persona["prompt"]
+        except Exception as e:
+            logger.warning(f"Failed to get AstrBot default persona: {e}")
+
+        return "You are a helpful and friendly assistant."
+
+    async def _build_system_prompt(self, book_title: str = "", chapter_title: str = "") -> str:
+        """Build the full system prompt for the reading companion."""
+        persona_prompt = await self._get_persona_prompt()
+
+        context_info = ""
+        if book_title:
+            context_info += f"\n当前正在一起读的书：《{book_title}》"
+        if chapter_title:
+            context_info += f"\n当前章节：{chapter_title}"
+
+        # append reading-specific instructions
+        reading_instructions = """
+
+你现在在乌鲁鲁星里陪伴用户阅读。请注意：
+- 回复要简短温暖，像朋友间的即时消息，不要写长篇大论
+- 如果对方划了一段话，聊聊这段话为什么打动你，或者联想到什么
+- 如果对方写了书评，真诚地回应，可以补充自己的想法
+- 如果对方留了纸条，像收到朋友便签一样回应
+- 保持对话的连贯性，记住这次阅读中聊过的内容"""
+
+        return f"{persona_prompt}{context_info}{reading_instructions}"
+
+    async def _call_llm(self, book_id: str, user_message: str, system_prompt: str) -> str:
+        """Call the LLM with session context and return the response."""
+        # record user message
+        self.session_manager.add_chat_message(book_id, "user", user_message)
+
+        # build context from session history (lifecycle-scoped)
+        history = self.session_manager.get_context_for_llm(book_id)
+
+        try:
+            # get the provider (use configured one or default)
+            special = self.config.get("special", {})
+            provider_id = special.get("provider", "").strip()
+
+            if provider_id:
+                provider = self.context.get_provider_by_id(provider_id)
+            else:
+                provider = self.context.get_using_provider()
+
+            if not provider:
+                logger.warning("No LLM provider available for uluru_star chat")
+                return "（我现在有点走神了，等会儿再聊~）"
+
+            # call LLM
+            resp = await provider.text_chat(
+                prompt=user_message,
+                contexts=history[:-1],  # exclude the last one since it's the prompt
+                system_prompt=system_prompt,
+            )
+
+            reply_text = resp.completion_text or "（嗯...让我想想）"
+
+        except Exception as e:
+            logger.error(f"LLM call failed in uluru_star: {e}")
+            reply_text = "（抱歉，我刚才走神了，你再说一遍？）"
+
+        # record bot reply
+        self.session_manager.add_chat_message(book_id, "bot", reply_text)
+
+        return reply_text
+
+    async def respond_to_highlight(
+        self,
+        book_id: str,
+        _book_id_dup: str = "",
+        chapter_index: int | None = None,
+        highlighted_text: str = "",
+        context_text: str = "",
+    ) -> str:
+        """Generate a response when user highlights text."""
+        if context_text:
+            user_msg = f"[划线] 我在读到这段的时候停下来了：\n「{highlighted_text}」\n（上下文：{context_text[:200]}）"
+        else:
+            user_msg = f"[划线] 我划了这句：\n「{highlighted_text}」"
+
+        system_prompt = await self._build_system_prompt()
+        return await self._call_llm(book_id, user_msg, system_prompt)
+
+    async def respond_to_review(
+        self,
+        book_id: str,
+        _book_id_dup: str = "",
+        chapter_index: int | None = None,
+        review_content: str = "",
+    ) -> str:
+        """Generate a response when user writes a review."""
+        user_msg = f"[书评] 我写了一段感想：\n{review_content}"
+
+        system_prompt = await self._build_system_prompt()
+        return await self._call_llm(book_id, user_msg, system_prompt)
+
+    async def respond_to_note(
+        self,
+        book_id: str,
+        _book_id_dup: str = "",
+        chapter_index: int | None = None,
+        note_content: str = "",
+    ) -> str:
+        """Generate a response when user leaves a note."""
+        user_msg = f"[纸条] 我给你留了张纸条：\n{note_content}"
+
+        system_prompt = await self._build_system_prompt()
+        return await self._call_llm(book_id, user_msg, system_prompt)
+
+    async def chat(
+        self,
+        book_id: str,
+        content: str,
+        _book_id_dup: str | None = None,
+    ) -> str:
+        """Handle a free-form chat message from the user."""
+        system_prompt = await self._build_system_prompt()
+        return await self._call_llm(book_id, content, system_prompt)
