@@ -33,6 +33,7 @@ class BotReader:
         self.book_manager = book_manager
         self.data_dir = data_dir
         self.progress_file = data_dir / "bot_reading_progress.json"
+        self.user_progress_file = data_dir / "user_reading_progress.json"
         self.target_session_file = data_dir / "target_session.json"
 
         self._task: asyncio.Task | None = None
@@ -40,6 +41,7 @@ class BotReader:
 
         # load state
         self.progress: dict[str, Any] = self._load_progress()
+        self.user_progress: dict[str, Any] = self._load_user_progress()
         self.target_session: str | None = self._load_target_session()
         self.last_user_activity: float = 0  # timestamp of last user message
 
@@ -58,6 +60,49 @@ class BotReader:
             json.dumps(self.progress, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def _load_user_progress(self) -> dict[str, Any]:
+        """Load user's reading progress from disk."""
+        if self.user_progress_file.exists():
+            try:
+                return json.loads(self.user_progress_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_user_progress(self):
+        """Persist user's reading progress."""
+        self.user_progress_file.write_text(
+            json.dumps(self.user_progress, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def report_user_progress(self, book_id: str, chapter_index: int, total_chapters: int, book_title: str = ""):
+        """Record user's reading progress (called when user opens a chapter)."""
+        current = self.user_progress.get(book_id, {})
+        current_chapter = current.get("current_chapter", -1)
+        # only update if user advanced (or first time)
+        if chapter_index >= current_chapter:
+            self.user_progress[book_id] = {
+                "current_chapter": chapter_index,
+                "total_chapters": total_chapters,
+                "book_title": book_title,
+                "last_read_at": time.time(),
+            }
+            self._save_user_progress()
+
+    def get_user_progress_percent(self, book_id: str) -> int:
+        """Get user's reading progress as a percentage."""
+        prog = self.user_progress.get(book_id)
+        if not prog:
+            return 0
+        total = prog.get("total_chapters", 1)
+        if total <= 0:
+            return 0
+        current = prog.get("current_chapter", 0)
+        # current_chapter is the chapter user is reading (0-indexed)
+        # progress = (current + 1) / total since user has at least opened this chapter
+        return min(99, round(((current + 1) / total) * 100))
 
     def _load_target_session(self) -> str | None:
         """Load the target session ID for proactive messages."""
@@ -97,17 +142,27 @@ class BotReader:
         """Get bot's reading progress as a percentage.
 
         Accounts for partial chapter reading (offset within a chapter).
+        current_chapter is 0-indexed and represents the chapter the bot is
+        currently reading (or has just started). Progress is calculated as:
+        - If offset > 0: partway through current_chapter
+        - If offset == 0: just arrived at current_chapter (not yet finished it)
         """
         prog = self.progress.get(book_id)
         if not prog:
             return 0
         total = prog.get("total_chapters", 1)
+        if total <= 0:
+            return 0
         current = prog.get("current_chapter", 0)
         offset = prog.get("current_offset", 0)
-        # if offset > 0, we're partway through the current chapter
-        # count it as a partial chapter (estimate ~0.5 extra)
-        effective = current + (0.5 if offset > 0 else 1)
-        return min(100, round((effective / total) * 100))
+        # current_chapter = chapter being read (0-indexed)
+        # progress = chapters completed / total
+        # if offset > 0, we're partway through current chapter (count as partial)
+        if offset > 0:
+            effective = current + 0.5
+        else:
+            effective = current
+        return min(99, round((effective / total) * 100))
 
     def start(self):
         """Start the background reading task."""

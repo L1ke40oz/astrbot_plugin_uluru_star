@@ -16,6 +16,7 @@ from astrbot.api import logger
 from astrbot.api.star import Context
 
 from .session_manager import SessionManager
+from .book_manager import BookManager
 
 
 class ChatEngine:
@@ -24,10 +25,12 @@ class ChatEngine:
         context: Context,
         config: dict[str, Any],
         session_manager: SessionManager,
+        book_manager: BookManager | None = None,
     ):
         self.context = context
         self.config = config
         self.session_manager = session_manager
+        self.book_manager = book_manager
 
     async def _get_persona_prompt(self) -> str:
         """Get the persona prompt. Uses plugin override if set, otherwise AstrBot's default."""
@@ -57,7 +60,12 @@ class ChatEngine:
 
         return "You are a helpful and friendly assistant."
 
-    async def _build_system_prompt(self, book_title: str = "", chapter_title: str = "") -> str:
+    async def _build_system_prompt(
+        self,
+        book_title: str = "",
+        chapter_title: str = "",
+        chapter_text: str = "",
+    ) -> str:
         """Build the full system prompt for the reading companion."""
         persona_prompt = await self._get_persona_prompt()
 
@@ -67,17 +75,27 @@ class ChatEngine:
         if chapter_title:
             context_info += f"\n当前章节：{chapter_title}"
 
+        # inject current chapter content (truncated if too long)
+        chapter_injection = ""
+        if chapter_text:
+            max_len = 5000
+            if len(chapter_text) > max_len:
+                chapter_text = chapter_text[:max_len] + "\n...(章节内容过长，已截断)"
+            chapter_injection = f"\n\n[当前章节内容]\n{chapter_text}\n[/当前章节内容]"
+
         # append reading-specific instructions
         reading_instructions = """
 
 你现在在乌鲁鲁星里陪伴用户阅读。请注意：
 - 回复要简短温暖，像朋友间的即时消息，不要写长篇大论
+- 你可以看到用户当前正在阅读的章节内容，可以随时讨论情节、角色、感受
 - 如果对方划了一段话，聊聊这段话为什么打动你，或者联想到什么
 - 如果对方写了书评，真诚地回应，可以补充自己的想法
 - 如果对方留了纸条，像收到朋友便签一样回应
+- 如果对方问起前面章节的内容，你可以调用 read_bookhouse_chapter 工具获取
 - 保持对话的连贯性，记住这次阅读中聊过的内容"""
 
-        return f"{persona_prompt}{context_info}{reading_instructions}"
+        return f"{persona_prompt}{context_info}{reading_instructions}{chapter_injection}"
 
     async def _call_llm(self, book_id: str, user_message: str, system_prompt: str) -> str:
         """Call the LLM with session context and return the response."""
@@ -166,8 +184,34 @@ class ChatEngine:
         self,
         book_id: str,
         content: str,
-        _book_id_dup: str | None = None,
+        chapter_index: int | None = None,
     ) -> str:
-        """Handle a free-form chat message from the user."""
-        system_prompt = await self._build_system_prompt()
+        """Handle a free-form chat message from the user.
+
+        If chapter_index is provided and book_manager is available,
+        injects the current chapter text into the system prompt.
+        """
+        # resolve book title and chapter info
+        book_title = ""
+        chapter_title = ""
+        chapter_text = ""
+
+        if self.book_manager:
+            books = self.book_manager.list_books()
+            book = next((b for b in books if b["id"] == book_id), None)
+            if book:
+                book_title = book.get("title", "")
+
+            if chapter_index is not None:
+                chapters = self.book_manager.get_chapters(book_id)
+                if chapters and 0 <= chapter_index < len(chapters):
+                    chapter_title = chapters[chapter_index].get("title", "")
+                    # fetch full chapter text for LLM context
+                    chapter_text = self.book_manager.get_chapter_text(book_id, chapter_index) or ""
+
+        system_prompt = await self._build_system_prompt(
+            book_title=book_title,
+            chapter_title=chapter_title,
+            chapter_text=chapter_text,
+        )
         return await self._call_llm(book_id, content, system_prompt)

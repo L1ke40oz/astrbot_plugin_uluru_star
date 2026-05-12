@@ -36,6 +36,7 @@ class WebUIServer:
         plugin_dir: Path,
         bot_reader=None,
         plugin=None,
+        assets_dir: Path | None = None,
     ):
         self.host = host
         self.port = port
@@ -47,6 +48,7 @@ class WebUIServer:
         self.plugin_dir = plugin_dir
         self.bot_reader = bot_reader
         self.plugin = plugin  # reference to SharedReadPlugin for snapshot
+        self.assets_dir = assets_dir
 
         self._server: uvicorn.Server | None = None
         self._server_task: asyncio.Task | None = None
@@ -95,6 +97,14 @@ class WebUIServer:
                 name="static",
             )
 
+        # serve user assets (images, etc.) from plugin_data/assets/
+        if self.assets_dir and self.assets_dir.exists():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=self.assets_dir),
+                name="assets",
+            )
+
         # --- Pages ---
 
         @app.get("/", response_class=HTMLResponse)
@@ -117,6 +127,38 @@ class WebUIServer:
             if not path:
                 raise HTTPException(404)
             return FileResponse(path, media_type="application/javascript")
+
+        # --- Frontend config API ---
+
+        @app.get("/api/config/frontend")
+        async def api_frontend_config():
+            """Return frontend-relevant config values."""
+            separator = "\\$"
+            if self.plugin and hasattr(self.plugin, "config"):
+                separator = self.plugin.config.get("message_separator", "\\$")
+            return {
+                "success": True,
+                "message_separator": separator,
+            }
+
+        # --- Profile API (persistent user data) ---
+
+        @app.get("/api/profile")
+        async def api_get_profile():
+            """Get stored profile data (avatars, nicknames, covers)."""
+            profile = self._load_profile()
+            return {"success": True, "profile": profile}
+
+        @app.post("/api/profile")
+        async def api_save_profile(request: Request):
+            """Save profile data."""
+            data = await request.json()
+            profile = self._load_profile()
+            # merge incoming data into existing profile
+            for key, value in data.items():
+                profile[key] = value
+            self._save_profile(profile)
+            return {"success": True}
 
         # --- Session APIs (book-based) ---
 
@@ -228,11 +270,20 @@ class WebUIServer:
                 book_id, chapter_index, text, context_text
             )
 
-            bot_reply = await self.chat_engine.respond_to_highlight(
-                book_id, book_id, chapter_index, text, context_text
-            )
+            # record highlight as a system note in chat history
+            # so the LLM knows what user highlighted when they ask about it
+            try:
+                note_content = f"[系统提示] 她划线了：「{text}」"
+                if context_text:
+                    note_content += f"\n（上下文：{context_text[:150]}）"
+                self.session_manager.add_chat_message(
+                    book_id, "user", note_content, metadata={"type": "highlight", "silent": True}
+                )
+                logger.debug(f"乌鲁鲁星: 划线已记录到对话历史 book={book_id} text={text[:30]}")
+            except Exception as e:
+                logger.warning(f"乌鲁鲁星: 划线记录到对话历史失败: {e}")
 
-            return {"success": True, "highlight": highlight, "bot_reply": bot_reply}
+            return {"success": True, "highlight": highlight}
 
         @app.post("/api/interact/review")
         async def api_review(request: Request):
@@ -284,11 +335,14 @@ class WebUIServer:
             data = await request.json()
             book_id = data.get("book_id")
             content = data.get("content", "")
+            chapter_index = data.get("chapter_index")
 
             if not book_id or not content:
                 raise HTTPException(400, detail="missing required fields")
 
-            bot_reply = await self.chat_engine.chat(book_id, content, book_id)
+            bot_reply = await self.chat_engine.chat(
+                book_id, content, chapter_index=chapter_index
+            )
             return {"success": True, "reply": bot_reply}
 
         # --- Data query APIs ---
@@ -312,6 +366,32 @@ class WebUIServer:
             if not self.bot_reader:
                 return {"success": True, "percent": 0}
             return {"success": True, "percent": self.bot_reader.get_bot_progress_percent(book_id)}
+
+        # --- User progress API ---
+
+        @app.post("/api/user-progress/report")
+        async def api_report_user_progress(request: Request):
+            """Report user's reading progress when they open a chapter."""
+            data = await request.json()
+            book_id = data.get("book_id")
+            chapter_index = data.get("chapter_index")
+            total_chapters = data.get("total_chapters", 0)
+            book_title = data.get("book_title", "")
+
+            if not book_id or chapter_index is None:
+                raise HTTPException(400, detail="missing required fields")
+
+            if self.bot_reader:
+                self.bot_reader.report_user_progress(
+                    book_id, chapter_index, total_chapters, book_title
+                )
+            return {"success": True}
+
+        @app.get("/api/user-progress/{book_id}")
+        async def api_user_progress(book_id: str):
+            if not self.bot_reader:
+                return {"success": True, "percent": 0}
+            return {"success": True, "percent": self.bot_reader.get_user_progress_percent(book_id)}
 
         # --- Memory Management APIs ---
 
@@ -433,6 +513,33 @@ class WebUIServer:
             content = content[:60] + "..."
         role = "她" if last.get("role") == "user" else "bot"
         return f"{role}: {content}"
+
+    # --- Profile persistence ---
+
+    def _get_profile_path(self) -> Path:
+        """Get the path to the profile data file."""
+        if self.plugin and hasattr(self.plugin, "data_dir"):
+            return self.plugin.data_dir / "profile.json"
+        # fallback: store next to custom_templates
+        return self.custom_templates_dir.parent / "profile.json"
+
+    def _load_profile(self) -> dict:
+        """Load profile data from disk."""
+        path = self._get_profile_path()
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_profile(self, profile: dict):
+        """Save profile data to disk."""
+        path = self._get_profile_path()
+        path.write_text(
+            json.dumps(profile, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     # --- Server lifecycle ---
 

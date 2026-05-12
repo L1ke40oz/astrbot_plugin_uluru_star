@@ -1,4 +1,144 @@
-/* === 乌鲁鲁星 - 紫罗兰星光主题 === */
+/* === 乌鲁鲁星 - 主题系统 === */
+
+/* --- Default theme: 星紫 (violet) --- */
+:root {
+  --bg-gradient-1: #e8dff5;
+  --bg-gradient-2: #f5f0fa;
+  --bg-gradient-3: #faf8fd;
+  --primary: #a78bda;
+  --primary-dark: #8b6fc0;
+  --primary-light: rgba(167, 139, 218, 0.15);
+  --primary-border: rgba(167, 139, 218, 0.25);
+  --primary-hover: rgba(167, 139, 218, 0.4);
+  --primary-glow: rgba(139, 111, 192, 0.3);
+  --text-primary: #4a3d5c;
+  --text-secondary: #5c4d73;
+  --text-muted: #9a8aad;
+  --text-hint: #b8a8c8;
+  --glass-bg: rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.45);
+  --glass-shadow: rgba(140, 110, 180, 0.1);
+  --nav-bg: rgba(255, 255, 255, 0.6);
+  --nav-border: rgba(180, 160, 210, 0.15);
+  --divider: rgba(180, 160, 210, 0.15);
+  --card-hover-shadow: rgba(140, 110, 180, 0.15);
+  --progress-bot: linear-gradient(90deg, #a78bda, #8b6fc0);
+  --progress-user: linear-gradient(90deg, #d4a5d8, #c08bc4);
+  --heart-color: rgba(200, 160, 220, 0.8);
+  --highlight-bg: rgba(173, 216, 255, 0.35);
+}
+
+/* --- 雾蓝 (mist blue) --- */
+[data-theme="blue"] {
+  --bg-gradient-1: #dce8f5;
+  --bg-gradient-2: #edf2fa;
+  --bg-gradient-3: #f7f9fd;
+  --primary: #8baed4;
+  --primary-dark: #6b8fb8;
+  --primary-light: rgba(139, 174, 212, 0.15);
+  --primary-border: rgba(139, 174, 212, 0.25);
+  --primary-hover: rgba(139, 174, 212, 0.4);
+  --primary-glow: rgba(107, 143, 184, 0.3);
+  --text-primary: #3d4a5c;
+  --text-secondary: #4d5e73;
+  --text-muted: #8a9aad;
+  --text-hint: #a8b8c8;
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(110, 140, 180, 0.1);
+  --nav-bg: rgba(255, 255, 255, 0.6);
+  --nav-border: rgba(160, 180, 210, 0.15);
+  --divider: rgba(160, 180, 210, 0.15);
+  --card-hover-shadow: rgba(110, 140, 180, 0.15);
+  --progress-bot: linear-gradient(90deg, #8baed4, #6b8fb8);
+  --progress-user: linear-gradient(90deg, #a5c4d8, #8baec4);
+  --heart-color: rgba(160, 190, 220, 0.8);
+  --highlight-bg: rgba(173, 210, 255, 0.35);
+}
+
+/* --- 樱粉 (sakura pink) --- */
+[data-theme="pink"] {
+  --bg-gradient-1: #f5dfe8;
+  --bg-gradient-2: #faf0f4;
+  --bg-gradient-3: #fdf8fa;
+  --primary: #d48bab;
+  --primary-dark: #b86b8f;
+  --primary-light: rgba(212, 139, 171, 0.15);
+  --primary-border: rgba(212, 139, 171, 0.25);
+  --primary-hover: rgba(212, 139, 171, 0.4);
+  --primary-glow: rgba(184, 107, 143, 0.3);
+  --text-primary: #5c3d4a;
+  --text-secondary: #734d5e;
+  --text-muted: #ad8a9a;
+  --text-hint: #c8a8b8;
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(180, 110, 140, 0.1);
+  --nav-bg: rgba(255, 255, 255, 0.6);
+  --nav-border: rgba(210, 160, 180, 0.15);
+  --divider: rgba(210, 160, 180, 0.15);
+  --card-hover-shadow: rgba(180, 110, 140, 0.15);
+  --progress-bot: linear-gradient(90deg, #d48bab, #b86b8f);
+  --progress-user: linear-gradient(90deg, #d8a5b8, #c48bab);
+  --heart-color: rgba(220, 160, 180, 0.8);
+  --highlight-bg: rgba(255, 200, 220, 0.35);
+}
+
+/* --- 苔绿 (moss green) --- */
+[data-theme="green"] {
+  --bg-gradient-1: #dff5e8;
+  --bg-gradient-2: #f0faf4;
+  --bg-gradient-3: #f8fdf9;
+  --primary: #8bc4a0;
+  --primary-dark: #6ba882;
+  --primary-light: rgba(139, 196, 160, 0.15);
+  --primary-border: rgba(139, 196, 160, 0.25);
+  --primary-hover: rgba(139, 196, 160, 0.4);
+  --primary-glow: rgba(107, 168, 130, 0.3);
+  --text-primary: #3d5c4a;
+  --text-secondary: #4d7360;
+  --text-muted: #8aad9a;
+  --text-hint: #a8c8b8;
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(110, 180, 140, 0.1);
+  --nav-bg: rgba(255, 255, 255, 0.6);
+  --nav-border: rgba(160, 210, 180, 0.15);
+  --divider: rgba(160, 210, 180, 0.15);
+  --card-hover-shadow: rgba(110, 180, 140, 0.15);
+  --progress-bot: linear-gradient(90deg, #8bc4a0, #6ba882);
+  --progress-user: linear-gradient(90deg, #a5d8b8, #8bc4a0);
+  --heart-color: rgba(160, 220, 180, 0.8);
+  --highlight-bg: rgba(180, 240, 200, 0.35);
+}
+
+/* --- 暖茶 (warm tea) --- */
+[data-theme="tea"] {
+  --bg-gradient-1: #f5efe0;
+  --bg-gradient-2: #faf7f0;
+  --bg-gradient-3: #fdfcf8;
+  --primary: #d4b88b;
+  --primary-dark: #b89a6b;
+  --primary-light: rgba(212, 184, 139, 0.15);
+  --primary-border: rgba(212, 184, 139, 0.25);
+  --primary-hover: rgba(212, 184, 139, 0.4);
+  --primary-glow: rgba(184, 154, 107, 0.3);
+  --text-primary: #5c4a3d;
+  --text-secondary: #73604d;
+  --text-muted: #ad9a8a;
+  --text-hint: #c8b8a8;
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(180, 150, 110, 0.1);
+  --nav-bg: rgba(255, 255, 255, 0.6);
+  --nav-border: rgba(210, 190, 160, 0.15);
+  --divider: rgba(210, 190, 160, 0.15);
+  --card-hover-shadow: rgba(180, 150, 110, 0.15);
+  --progress-bot: linear-gradient(90deg, #d4b88b, #b89a6b);
+  --progress-user: linear-gradient(90deg, #d8c8a5, #c4b08b);
+  --heart-color: rgba(220, 190, 150, 0.8);
+  --highlight-bg: rgba(240, 220, 180, 0.35);
+}
 
 * {
   margin: 0;
@@ -9,8 +149,8 @@
 body {
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   min-height: 100vh;
-  background: radial-gradient(ellipse at center top, #e8dff5 0%, #f5f0fa 40%, #faf8fd 100%);
-  color: #4a3d5c;
+  background: radial-gradient(ellipse at center top, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 40%, var(--bg-gradient-3) 100%);
+  color: var(--text-primary);
   overflow-x: hidden;
 }
 
@@ -77,13 +217,13 @@ body {
   width: 100%;
   max-width: 460px;
   padding: 32px 32px 24px;
-  background: rgba(255, 255, 255, 0.28);
+  background: var(--glass-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--glass-border);
   border-radius: 24px;
   box-shadow:
-    0 8px 40px rgba(140, 110, 180, 0.1),
+    0 8px 40px var(--glass-shadow),
     inset 0 1px 0 rgba(255, 255, 255, 0.35);
   animation: card-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: transform, opacity;
@@ -198,8 +338,8 @@ body {
 .progress-bar-wrapper { display: flex; flex-direction: column; gap: 6px; }
 .progress-track { width: 100%; height: 4px; background: rgba(180, 160, 210, 0.15); border-radius: 2px; overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 2px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-.bot-progress { background: linear-gradient(90deg, #a78bda, #8b6fc0); }
-.user-progress { background: linear-gradient(90deg, #d4a5d8, #c08bc4); }
+.bot-progress { background: var(--progress-bot); }
+.user-progress { background: var(--progress-user); }
 .progress-names { display: flex; justify-content: space-between; margin-top: 8px; }
 .progress-name { font-size: 11px; color: #a090b8; }
 
@@ -536,10 +676,10 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--nav-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(180, 160, 210, 0.15);
+  border-top: 1px solid var(--nav-border);
   z-index: 200;
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
@@ -556,11 +696,11 @@ body {
   cursor: pointer;
   padding: 8px 0;
   transition: all 0.2s;
-  color: #9a8aad;
+  color: var(--text-muted);
 }
 
-.nav-item:hover { color: #7b5ea8; }
-.nav-item.active { color: #7b5ea8; }
+.nav-item:hover { color: var(--primary-dark); }
+.nav-item.active { color: var(--primary-dark); }
 
 .nav-icon { font-size: 20px; }
 .nav-label { font-size: 10px; letter-spacing: 0.5px; }
@@ -574,11 +714,11 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #a78bda, #8b6fc0);
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 16px rgba(139, 111, 192, 0.3);
+  box-shadow: 0 4px 16px var(--primary-glow);
   transition: transform 0.2s, box-shadow 0.2s;
   margin-top: -16px;
 }
@@ -921,7 +1061,7 @@ body {
 
 /* === User Highlight === */
 mark.user-highlight {
-  background: rgba(173, 216, 255, 0.35);
+  background: var(--highlight-bg);
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -932,11 +1072,11 @@ mark.user-highlight {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #a78bda, #8b6fc0);
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   border: none;
   font-size: 20px;
   cursor: grab;
-  box-shadow: 0 4px 16px rgba(139, 111, 192, 0.35);
+  box-shadow: 0 4px 16px var(--primary-glow);
   z-index: 510;
   transition: box-shadow 0.2s;
   display: flex;
@@ -1052,14 +1192,36 @@ mark.user-highlight {
 }
 
 .chat-msg.thinking {
-  opacity: 0.6;
-  font-style: italic;
-  animation: thinking-pulse 1.2s ease-in-out infinite;
+  padding: 10px 14px;
 }
 
-@keyframes thinking-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+/* Typing dots indicator */
+.typing-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+}
+
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9a8aad;
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
 }
 
 .chat-bubble-input {
@@ -1466,3 +1628,185 @@ mark.user-highlight {
 
 .memory-msg-item:hover .memory-msg-delete { opacity: 0.6; }
 .memory-msg-delete:hover { opacity: 1 !important; background: rgba(200, 80, 80, 0.1); }
+
+/* === Placeholder Tab === */
+.placeholder-container {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* === Settings Tab === */
+.settings-container {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.settings-title {
+  font-size: 16px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+/* === Settings Card === */
+.settings-card {
+  position: relative;
+  overflow: visible;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow:
+    0 6px 32px var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  padding: 24px 20px;
+  margin-bottom: 16px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.settings-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 36px var(--card-hover-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* Planet decoration (top-right corner, pinned like a sticker) */
+.settings-card-planet {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 38px;
+  height: 38px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.settings-card-planet .planet-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 2px 6px rgba(140, 110, 180, 0.3));
+}
+
+.settings-card-planet .planet-fallback {
+  display: none;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%,
+    rgba(200, 180, 240, 0.9),
+    rgba(140, 110, 190, 0.7) 50%,
+    rgba(90, 60, 140, 0.5) 100%
+  );
+  box-shadow:
+    0 2px 8px rgba(167, 139, 218, 0.5),
+    0 0 16px rgba(167, 139, 218, 0.25),
+    inset -4px -4px 8px rgba(60, 40, 100, 0.3);
+}
+
+/* Meteor streaks (white, positioned over the planet) */
+.settings-card-meteor {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 36px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.6) 30%, rgba(255, 255, 255, 1) 65%, transparent 100%);
+  border-radius: 1px;
+  opacity: 0;
+  transform: rotate(-32deg) translateX(20px);
+  animation: meteor-streak 5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.settings-card-meteor-2 {
+  top: 8px;
+  right: -4px;
+  width: 24px;
+  height: 1.5px;
+  transform: rotate(-25deg) translateX(16px);
+  animation-delay: 2.8s;
+  animation-duration: 6s;
+}
+
+@keyframes meteor-streak {
+  0%, 78%, 100% {
+    opacity: 0;
+    transform: rotate(-32deg) translateX(20px);
+  }
+  82% {
+    opacity: 0.9;
+    transform: rotate(-32deg) translateX(0px);
+  }
+  88% {
+    opacity: 0.7;
+    transform: rotate(-32deg) translateX(-30px);
+  }
+  92% {
+    opacity: 0;
+    transform: rotate(-32deg) translateX(-50px);
+  }
+}
+
+/* Card body content */
+.settings-card-body {
+  position: relative;
+  z-index: 1;
+}
+
+.settings-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.settings-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* === Theme Picker === */
+.theme-picker {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.theme-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  padding: 3px;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.theme-dot:hover {
+  transform: scale(1.1);
+}
+
+.theme-dot.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.theme-dot-inner {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}

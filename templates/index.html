@@ -163,6 +163,70 @@
       </div>
     </section>
 
+    <!-- === TAB: Placeholder === -->
+    <section class="tab-view" id="tab-placeholder">
+      <div class="placeholder-container">
+        <div class="tab-placeholder">
+          <span class="tab-placeholder-icon">🎯</span>
+          <p>待定</p>
+          <p class="tab-placeholder-hint">这里将会有新功能</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- === TAB: Settings === -->
+    <section class="tab-view" id="tab-settings">
+      <div class="settings-container">
+        <h2 class="settings-title">⚙️ 设置</h2>
+
+        <!-- Settings Card 1: placeholder -->
+        <div class="settings-card">
+          <div class="settings-card-planet">
+            <img src="/assets/planet.png" alt="" class="planet-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+            <div class="planet-fallback"></div>
+          </div>
+          <div class="settings-card-meteor"></div>
+          <div class="settings-card-meteor settings-card-meteor-2"></div>
+          <div class="settings-card-body">
+            <h3 class="settings-card-title">功能设置</h3>
+            <p class="settings-card-desc">更多设置即将到来</p>
+          </div>
+        </div>
+
+        <!-- Settings Card 2: Appearance -->
+        <div class="settings-card">
+          <div class="settings-card-planet">
+            <img src="/assets/planet.png" alt="" class="planet-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+            <div class="planet-fallback"></div>
+          </div>
+          <div class="settings-card-meteor"></div>
+          <div class="settings-card-meteor settings-card-meteor-2"></div>
+          <div class="settings-card-body">
+            <h3 class="settings-card-title">外观设置</h3>
+            <p class="settings-card-desc">选择你喜欢的色系</p>
+            <div class="theme-picker" id="theme-picker">
+              <button class="theme-dot active" data-theme="" title="星紫">
+                <span class="theme-dot-inner" style="background: linear-gradient(135deg, #e8dff5, #a78bda, #8b6fc0);"></span>
+              </button>
+              <button class="theme-dot" data-theme="blue" title="雾蓝">
+                <span class="theme-dot-inner" style="background: linear-gradient(135deg, #dce8f5, #8baed4, #6b8fb8);"></span>
+              </button>
+              <button class="theme-dot" data-theme="pink" title="樱粉">
+                <span class="theme-dot-inner" style="background: linear-gradient(135deg, #f5dfe8, #d48bab, #b86b8f);"></span>
+              </button>
+              <button class="theme-dot" data-theme="green" title="苔绿">
+                <span class="theme-dot-inner" style="background: linear-gradient(135deg, #dff5e8, #8bc4a0, #6ba882);"></span>
+              </button>
+              <button class="theme-dot" data-theme="tea" title="暖茶">
+                <span class="theme-dot-inner" style="background: linear-gradient(135deg, #f5efe0, #d4b88b, #b89a6b);"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
   </div>
 
   <!-- Reader view (full screen, hides bottom nav) -->
@@ -222,6 +286,10 @@
       <span class="nav-icon">🔧</span>
       <span class="nav-label">工具箱</span>
     </button>
+    <button class="nav-item" data-tab="placeholder" id="nav-placeholder">
+      <span class="nav-icon">🎯</span>
+      <span class="nav-label">待定</span>
+    </button>
     <button class="nav-item nav-center" data-tab="home" id="nav-home">
       <span class="nav-center-circle">
         <span class="nav-center-icon">✦</span>
@@ -230,6 +298,10 @@
     <button class="nav-item" data-tab="notes" id="nav-notes">
       <span class="nav-icon">📑</span>
       <span class="nav-label">笔记</span>
+    </button>
+    <button class="nav-item" data-tab="settings" id="nav-settings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">设置</span>
     </button>
   </nav>
 

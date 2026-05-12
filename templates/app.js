@@ -1,5 +1,5 @@
 /**
- * 星夜书屋 - 首页 + 书架（分页）
+ * 乌鲁鲁星 - 首页 + 书架（分页）
  */
 
 var API_BASE = window.location.origin;
@@ -21,12 +21,15 @@ var state = {
   heartbeatTimer: null,
   books: [],
   currentPage: 0,
+  messageSeparator: null, // regex for splitting bot messages into multiple bubbles
 };
 
 // ==================== Init ====================
 
 async function init() {
+  await loadProfileFromServer();
   restoreProfile();
+  await loadFrontendConfig();
   await loadBooks();
   // restore last selected book (after books are loaded so we can get the title)
   var lastBook = localStorage.getItem("shared_read_progress_selected_book");
@@ -37,6 +40,54 @@ async function init() {
     await startSession(lastBook);
   }
   bindEvents();
+}
+
+// ==================== Profile Sync ====================
+
+async function loadProfileFromServer() {
+  try {
+    var res = await apiGet("profile");
+    if (res.success && res.profile) {
+      var p = res.profile;
+      // sync server data into localStorage so restoreProfile picks it up
+      if (p.user_nickname) localStorage.setItem(USER_NICKNAME_KEY, p.user_nickname);
+      if (p.bot_nickname) localStorage.setItem(BOT_NICKNAME_KEY, p.bot_nickname);
+      if (p.user_avatar) localStorage.setItem(USER_AVATAR_KEY, p.user_avatar);
+      if (p.bot_avatar) localStorage.setItem(BOT_AVATAR_KEY, p.bot_avatar);
+      // restore theme
+      if (p.theme !== undefined) {
+        localStorage.setItem("shared_read_theme", p.theme);
+        if (p.theme) {
+          document.documentElement.setAttribute("data-theme", p.theme);
+        } else {
+          document.documentElement.removeAttribute("data-theme");
+        }
+      }
+      // restore book covers
+      if (p.covers) {
+        Object.keys(p.covers).forEach(function (bookId) {
+          localStorage.setItem(COVER_PREFIX + bookId, p.covers[bookId]);
+        });
+      }
+    }
+  } catch (e) {
+    // offline or first run, use localStorage as-is
+  }
+}
+
+function saveProfileToServer(key, value) {
+  var data = {};
+  data[key] = value;
+  apiPost("profile", data).catch(function () {});
+}
+
+function saveCoversToServer(bookId, coverData) {
+  // fetch current covers, merge, and save
+  apiGet("profile").then(function (res) {
+    var covers = (res.success && res.profile && res.profile.covers) || {};
+    covers[bookId] = coverData;
+    apiPost("profile", { covers: covers }).catch(function () {});
+  }).catch(function () {});
 }
 
 function restoreProfile() {
@@ -56,7 +107,27 @@ function restoreProfile() {
   if (botAvatar) setAvatarImage("bot", botAvatar);
 }
 
+// ==================== Frontend Config ====================
+
+async function loadFrontendConfig() {
+  try {
+    var result = await apiGet("config/frontend");
+    if (result.success && result.message_separator) {
+      try {
+        state.messageSeparator = new RegExp(result.message_separator);
+      } catch (e) {
+        console.warn("Invalid message_separator regex:", result.message_separator);
+      }
+    }
+  } catch (e) {
+    // use default if config fetch fails
+    state.messageSeparator = /\$/;
+  }
+}
+
 // ==================== Session ====================
+
+var _capsuleShown = false;
 
 async function startSession(bookId) {
   try {
@@ -70,7 +141,10 @@ async function startSession(bookId) {
     }
     var result = await apiPost("session/start", body);
     if (result.success) {
-      showCapsule();
+      if (!_capsuleShown) {
+        showCapsule();
+        _capsuleShown = true;
+      }
       startHeartbeat();
     }
   } catch (e) {
@@ -130,6 +204,7 @@ function handleAvatarChange(who, file) {
   reader.onload = function (e) {
     setAvatarImage(who, e.target.result);
     localStorage.setItem(who === "user" ? USER_AVATAR_KEY : BOT_AVATAR_KEY, e.target.result);
+    saveProfileToServer(who === "user" ? "user_avatar" : "bot_avatar", e.target.result);
   };
   reader.readAsDataURL(file);
 }
@@ -156,6 +231,7 @@ function finishNicknameEdit(who) {
   var name = el.textContent.trim() || defaultName;
   el.textContent = name;
   localStorage.setItem(who === "user" ? USER_NICKNAME_KEY : BOT_NICKNAME_KEY, name);
+  saveProfileToServer(who === "user" ? "user_nickname" : "bot_nickname", name);
   document.getElementById("progress-" + who + "-name").textContent = name;
 }
 
@@ -229,6 +305,7 @@ function renderPage() {
         var reader = new FileReader();
         reader.onload = function (ev) {
           localStorage.setItem(COVER_PREFIX + bookId, ev.target.result);
+          saveCoversToServer(bookId, ev.target.result);
           renderPage();
         };
         reader.readAsDataURL(input.files[0]);
@@ -559,10 +636,18 @@ async function loadChatHistory(bookId) {
   try {
     var res = await apiGet("chat/history?book_id=" + encodeURIComponent(bookId));
     if (res.success && res.messages && res.messages.length > 0) {
-      container.innerHTML = "";
-      res.messages.forEach(function (msg) {
-        appendChatMsg(msg.role === "user" ? "user" : "bot", msg.content);
+      // filter out silent system messages (highlights, etc.)
+      var visibleMessages = res.messages.filter(function (msg) {
+        if (msg.metadata && msg.metadata.silent) return false;
+        if (msg.content && msg.content.indexOf("[系统提示]") === 0) return false;
+        return true;
       });
+      if (visibleMessages.length > 0) {
+        container.innerHTML = "";
+        visibleMessages.forEach(function (msg) {
+          appendChatMsg(msg.role === "user" ? "user" : "bot", msg.content);
+        });
+      }
     }
   } catch (e) {
     console.error("Failed to load chat history:", e);
@@ -633,6 +718,15 @@ async function loadChapterContent(index) {
   }
 
   saveReadingProgress();
+
+  // report user progress to backend
+  var book = state.books.find(function (b) { return b.id === readerState.bookId; });
+  apiPost("user-progress/report", {
+    book_id: readerState.bookId,
+    chapter_index: index,
+    total_chapters: readerState.chapters.length,
+    book_title: book ? book.title : "",
+  }).catch(function () {});
 }
 
 // Sidebar
@@ -833,13 +927,20 @@ async function sendChatMessage() {
   textarea.value = "";
   appendChatMsg("user", content);
 
-  var thinkingId = appendChatMsg("bot", "思考中...", "thinking");
+  var thinkingId = appendChatMsg("bot", "", "thinking");
+
+  // insert typing dots into the thinking bubble
+  var thinkingEl = document.getElementById(thinkingId);
+  if (thinkingEl) {
+    thinkingEl.innerHTML = '<span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>';
+  }
 
   try {
     var bookId = readerState.bookId || state.currentBookId;
     var result = await apiPost("chat/send", {
       book_id: bookId,
       content: content,
+      chapter_index: readerState.currentChapter,
     });
     removeChatMsg(thinkingId);
     if (result.success && result.reply) {
@@ -858,6 +959,22 @@ function appendChatMsg(role, text, extraClass) {
   var welcome = container.querySelector(".chat-bubble-welcome");
   if (welcome) welcome.remove();
 
+  // split bot messages by separator into multiple bubbles
+  if (role === "bot" && !extraClass && state.messageSeparator && text) {
+    var segments = text.split(state.messageSeparator).map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+    if (segments.length > 1) {
+      var lastId = null;
+      segments.forEach(function (seg) {
+        lastId = _appendSingleBubble(container, role, seg, extraClass);
+      });
+      return lastId;
+    }
+  }
+
+  return _appendSingleBubble(container, role, text, extraClass);
+}
+
+function _appendSingleBubble(container, role, text, extraClass) {
   var div = document.createElement("div");
   div.className = "chat-msg " + role + (extraClass ? " " + extraClass : "");
   var msgId = "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
@@ -927,13 +1044,23 @@ function updateHomeProgress() {
     document.getElementById("bot-progress").style.width = "0%";
     return;
   }
-  var progress = getReadingProgress(bookId);
-  if (progress && progress.totalChapters > 0) {
-    var pct = Math.round(((progress.chapter + 1) / progress.totalChapters) * 100);
-    document.getElementById("user-progress").style.width = pct + "%";
-  } else {
-    document.getElementById("user-progress").style.width = "0%";
-  }
+  // fetch user progress from backend
+  apiGet("user-progress/" + bookId).then(function (res) {
+    if (res && res.success) {
+      document.getElementById("user-progress").style.width = res.percent + "%";
+    } else {
+      document.getElementById("user-progress").style.width = "0%";
+    }
+  }).catch(function () {
+    // fallback to localStorage if backend unavailable
+    var progress = getReadingProgress(bookId);
+    if (progress && progress.totalChapters > 0) {
+      var pct = Math.round(((progress.chapter + 1) / progress.totalChapters) * 100);
+      document.getElementById("user-progress").style.width = pct + "%";
+    } else {
+      document.getElementById("user-progress").style.width = "0%";
+    }
+  });
   apiGet("bot-progress/" + bookId).then(function (res) {
     if (res && res.success) {
       document.getElementById("bot-progress").style.width = res.percent + "%";
@@ -1049,6 +1176,20 @@ function doHighlight() {
   } catch (e) {
     // complex selections may fail
   }
+
+  // notify backend about the highlight so bot knows
+  var contextText = "";
+  try {
+    var parentEl = mark && mark.parentElement;
+    if (parentEl) contextText = (parentEl.textContent || "").trim().substring(0, 200);
+  } catch (e) {}
+  apiPost("interact/highlight", {
+    session_token: "local",
+    book_id: readerState.bookId,
+    chapter_index: readerState.currentChapter,
+    text: text,
+    context: contextText,
+  }).catch(function () {});
 
   sel.removeAllRanges();
 }
@@ -1329,6 +1470,52 @@ function escapeAttr(str) {
   } else {
     initStars();
   }
+})();
+
+// ==================== Theme Switching ====================
+
+(function initTheme() {
+  // apply saved theme immediately (before DOM renders fully)
+  var saved = localStorage.getItem("shared_read_theme") || "";
+  if (saved) {
+    document.documentElement.setAttribute("data-theme", saved);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var picker = document.getElementById("theme-picker");
+    if (!picker) return;
+
+    // mark active dot
+    var dots = picker.querySelectorAll(".theme-dot");
+    dots.forEach(function (dot) {
+      if (dot.dataset.theme === saved) {
+        dot.classList.add("active");
+      } else if (!saved && dot.dataset.theme === "") {
+        dot.classList.add("active");
+      } else {
+        dot.classList.remove("active");
+      }
+    });
+
+    // bind click
+    dots.forEach(function (dot) {
+      dot.addEventListener("click", function () {
+        var theme = dot.dataset.theme;
+        // apply
+        if (theme) {
+          document.documentElement.setAttribute("data-theme", theme);
+        } else {
+          document.documentElement.removeAttribute("data-theme");
+        }
+        // save
+        localStorage.setItem("shared_read_theme", theme);
+        saveProfileToServer("theme", theme);
+        // update active state
+        dots.forEach(function (d) { d.classList.remove("active"); });
+        dot.classList.add("active");
+      });
+    });
+  });
 })();
 
 // ==================== Start ====================

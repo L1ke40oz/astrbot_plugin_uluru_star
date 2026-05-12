@@ -77,11 +77,13 @@ class SharedReadPlugin(Star):
         self.books_dir = self.data_dir / "books"
         self.sessions_dir = self.data_dir / "sessions"
         self.custom_templates_dir = self.data_dir / "custom_templates"
+        self.assets_dir = self.data_dir / "assets"
 
         # ensure directories exist
         self.books_dir.mkdir(parents=True, exist_ok=True)
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.custom_templates_dir.mkdir(parents=True, exist_ok=True)
+        self.assets_dir.mkdir(parents=True, exist_ok=True)
 
         # core components
         self.session_manager = SessionManager(
@@ -93,6 +95,7 @@ class SharedReadPlugin(Star):
             context=context,
             config=config,
             session_manager=self.session_manager,
+            book_manager=self.book_manager,
         )
 
         # Bot reader (simulates bot reading books)
@@ -142,6 +145,7 @@ class SharedReadPlugin(Star):
                 plugin_dir=self._get_plugin_dir(),
                 bot_reader=self.bot_reader,
                 plugin=self,
+                assets_dir=self.assets_dir,
             )
             await self.webui_server.start()
             display_host = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host
@@ -223,11 +227,24 @@ class SharedReadPlugin(Star):
                 book_lines = ["[书架]"]
                 for book in books[:10]:
                     title = book.get("title", "未知")
-                    progress = self.bot_reader.get_bot_progress_percent(book.get("id", ""))
-                    if progress > 0:
-                        book_lines.append(f"  《{title}》(你已读 {progress}%)")
-                    else:
-                        book_lines.append(f"  《{title}》")
+                    book_id = book.get("id", "")
+                    bot_prog = self.bot_reader.progress.get(book_id, {})
+                    user_prog = self.bot_reader.user_progress.get(book_id, {})
+                    bot_progress = self.bot_reader.get_bot_progress_percent(book_id)
+                    user_progress = self.bot_reader.get_user_progress_percent(book_id)
+                    parts = [f"  《{title}》"]
+                    progress_info = []
+                    if bot_progress > 0:
+                        bot_ch = bot_prog.get("current_chapter", 0) + 1
+                        bot_total = bot_prog.get("total_chapters", 0)
+                        progress_info.append(f"你读到第{bot_ch}/{bot_total}章({bot_progress}%)")
+                    if user_progress > 0:
+                        user_ch = user_prog.get("current_chapter", 0) + 1
+                        user_total = user_prog.get("total_chapters", 0)
+                        progress_info.append(f"她读到第{user_ch}/{user_total}章({user_progress}%)")
+                    if progress_info:
+                        parts.append(f" ({', '.join(progress_info)})")
+                    book_lines.append("".join(parts))
                 book_lines.append("[/书架]")
                 memory_parts.append("\n".join(book_lines))
 

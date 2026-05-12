@@ -30,9 +30,31 @@ class SessionManager:
         # ensure directories exist
         self.books_dir.mkdir(parents=True, exist_ok=True)
 
+        # clean up legacy archives folder (no longer used)
+        self._cleanup_legacy_archives()
+
         # currently active book session (loaded into memory for fast access)
         self.active_book_id: str | None = None
         self.active_session: dict[str, Any] | None = None
+
+    def _cleanup_legacy_archives(self):
+        """Remove legacy archives folder and active_sessions.json on startup."""
+        archives_dir = self.sessions_dir / "archives"
+        if archives_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(archives_dir)
+                logger.info("乌鲁鲁星: 已清理旧版 archives 文件夹")
+            except Exception as e:
+                logger.warning(f"乌鲁鲁星: 清理 archives 失败: {e}")
+
+        active_file = self.sessions_dir / "active_sessions.json"
+        if active_file.exists():
+            try:
+                active_file.unlink()
+                logger.debug("乌鲁鲁星: 已清理旧版 active_sessions.json")
+            except Exception:
+                pass
 
     # ==================== Book Session CRUD ====================
 
@@ -337,10 +359,37 @@ class SessionManager:
 
     # ==================== Internal ====================
 
+    def _session_filename(self, book_id: str, book_title: str = "") -> str:
+        """Generate a human-readable session filename.
+
+        Format: {book_id}_{sanitized_title}.json
+        Falls back to just {book_id}.json if title is empty.
+        """
+        if book_title:
+            # sanitize title for filesystem: remove invalid chars, limit length
+            safe_title = "".join(
+                c for c in book_title if c not in r'\/:*?"<>|'
+            ).strip()[:40]
+            if safe_title:
+                return f"{book_id}_{safe_title}.json"
+        return f"{book_id}.json"
+
+    def _find_session_file(self, book_id: str) -> Path | None:
+        """Find the session file for a book_id (handles both old and new naming)."""
+        # try new naming pattern first: {book_id}_*.json
+        matches = list(self.books_dir.glob(f"{book_id}_*.json"))
+        if matches:
+            return matches[0]
+        # fallback to old naming: {book_id}.json
+        old_path = self.books_dir / f"{book_id}.json"
+        if old_path.exists():
+            return old_path
+        return None
+
     def _load_book_session(self, book_id: str) -> dict[str, Any] | None:
         """Load a book session from disk."""
-        session_file = self.books_dir / f"{book_id}.json"
-        if not session_file.exists():
+        session_file = self._find_session_file(book_id)
+        if not session_file:
             return None
         try:
             return json.loads(session_file.read_text(encoding="utf-8"))
@@ -348,8 +397,21 @@ class SessionManager:
             return None
 
     def _save_book_session(self, book_id: str, session: dict[str, Any]):
-        """Save a book session to disk."""
-        session_file = self.books_dir / f"{book_id}.json"
+        """Save a book session to disk with human-readable filename."""
+        book_title = session.get("book_title", "")
+        filename = self._session_filename(book_id, book_title)
+        session_file = self.books_dir / filename
+
+        # if old-style file exists with different name, remove it
+        old_file = self.books_dir / f"{book_id}.json"
+        if old_file.exists() and old_file != session_file:
+            old_file.unlink()
+
+        # also check if there's a different named file for this book_id
+        existing = self._find_session_file(book_id)
+        if existing and existing != session_file:
+            existing.unlink()
+
         session_file.write_text(
             json.dumps(session, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -357,8 +419,8 @@ class SessionManager:
 
     def _delete_book_session(self, book_id: str):
         """Delete a book session file."""
-        session_file = self.books_dir / f"{book_id}.json"
-        if session_file.exists():
+        session_file = self._find_session_file(book_id)
+        if session_file and session_file.exists():
             session_file.unlink()
             logger.debug(f"乌鲁鲁星: 已删除空会话 {book_id}")
 

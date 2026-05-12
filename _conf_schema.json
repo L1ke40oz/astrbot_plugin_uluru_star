@@ -46,8 +46,14 @@
   "reply_to_message_channel": {
     "description": "同时发送到消息通道",
     "type": "bool",
-    "hint": "是否同时将 bot 的回复发送到消息通道（如 QQ）。关闭则仅在乌鲁鲁星网页内显示。",
+    "hint": "是否同时将他的回复发送到消息通道（如 QQ）。关闭则仅在乌鲁鲁星网页内显示。",
     "default": false
+  },
+  "message_separator": {
+    "description": "消息分段符",
+    "type": "string",
+    "hint": "Bot 回复中的分段符号（正则表达式）。匹配到的位置会拆分为多条气泡显示。例如填 \\$ 表示用 $ 分段。留空则不分段。",
+    "default": "\\$"
   },
   "bot_reading": {
     "description": "阅读设置",
@@ -57,25 +63,25 @@
       "enabled": {
         "description": "启用 Bot 自主阅读",
         "type": "bool",
-        "hint": "开启后 Bot 会在后台自己阅读书籍，并有概率主动发消息分享感想",
+        "hint": "开启后他会在后台自己阅读书籍，并有概率主动发消息分享感想",
         "default": true
       },
       "reading_interval_min": {
         "description": "阅读间隔下限（分钟）",
         "type": "int",
-        "hint": "Bot 两次阅读之间的最短等待时间",
+        "hint": "两次阅读之间的最短等待时间",
         "default": 120
       },
       "reading_interval_max": {
         "description": "阅读间隔上限（分钟）",
         "type": "int",
-        "hint": "Bot 两次阅读之间的最长等待时间",
+        "hint": "两次阅读之间的最长等待时间",
         "default": 300
       },
       "message_probability": {
         "description": "主动消息概率（%）",
         "type": "int",
-        "hint": "Bot 读完一章后发送主动消息的概率，0-100",
+        "hint": "他读完一章后发送主动消息的概率，0-100",
         "default": 30
       },
       "no_interrupt_minutes": {
