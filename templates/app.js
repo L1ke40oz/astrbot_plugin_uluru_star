@@ -63,6 +63,10 @@ async function loadProfileFromServer() {
           document.documentElement.removeAttribute("data-theme");
         }
       }
+      // restore particle settings
+      if (p.particles) {
+        localStorage.setItem("shared_read_particles", JSON.stringify(p.particles));
+      }
       // restore book covers
       if (p.covers) {
         Object.keys(p.covers).forEach(function (bookId) {
@@ -403,7 +407,7 @@ function goToPage(page) {
 // ==================== Upload ====================
 
 async function uploadBook(file) {
-  if (!file || !file.name.endsWith(".epub")) return;
+  if (!file || !(file.name.endsWith(".epub") || file.name.endsWith(".txt"))) return;
   var formData = new FormData();
   formData.append("file", file);
   try {
@@ -515,8 +519,17 @@ function switchTab(tabName) {
 
   // render notes when switching to notes tab
   if (tabName === "notes") renderNotesTab();
-  // load memory data when switching to tools tab
-  if (tabName === "tools") loadMemoryData();
+  // load data when switching to tools (小窝) tab
+  if (tabName === "tools") {
+    loadMemoryData();
+    loadBotActivity();
+    loadConnectionInfo();
+    loadNoteBox();
+  }
+  // load stats on home tab
+  if (tabName === "home") {
+    loadStats();
+  }
 }
 
 // ==================== Events ====================
@@ -603,6 +616,9 @@ var readerState = {
   chapters: [],
   currentChapter: 0,
   chatOpen: false,
+  scrollPercent: 0,
+  bookmarks: {},       // { "bookId:chapterIndex": percent }
+  completedChapters: {}, // { "bookId:chapterIndex": true }
 };
 
 function openReader(bookId) {
@@ -711,7 +727,10 @@ async function loadChapterContent(index) {
     if (result.success) {
       document.getElementById("reader-body").innerHTML = result.content;
       document.getElementById("reader-body").scrollTop = 0;
+      readerState.scrollPercent = 0;
       applyHighlights();
+      updateBookmarkButton();
+      updateCheckinButton();
     }
   } catch (e) {
     document.getElementById("reader-body").innerHTML = '<p class="reader-placeholder">加载失败</p>';
@@ -937,11 +956,18 @@ async function sendChatMessage() {
 
   try {
     var bookId = readerState.bookId || state.currentBookId;
-    var result = await apiPost("chat/send", {
+    var body = {
       book_id: bookId,
       content: content,
       chapter_index: readerState.currentChapter,
-    });
+      scroll_percent: readerState.scrollPercent || 0,
+    };
+    // include bookmark if set for current chapter
+    var bmKey = bookId + ":" + readerState.currentChapter;
+    if (readerState.bookmarks[bmKey] !== undefined) {
+      body.bookmark_percent = readerState.bookmarks[bmKey];
+    }
+    var result = await apiPost("chat/send", body);
     removeChatMsg(thinkingId);
     if (result.success && result.reply) {
       appendChatMsg("bot", result.reply);
@@ -1017,8 +1043,191 @@ function bindReaderEvents() {
   // highlight button
   document.getElementById("reader-highlight-btn").addEventListener("click", doHighlight);
 
+  // bookmark button
+  document.getElementById("reader-bookmark-btn").addEventListener("click", doBookmark);
+
+  // checkin button
+  document.getElementById("reader-checkin-btn").addEventListener("click", doCheckin);
+
+  // track scroll position in reader body
+  var readerBody = document.getElementById("reader-body");
+  readerBody.addEventListener("scroll", function () {
+    var el = readerBody;
+    var scrollable = el.scrollHeight - el.clientHeight;
+    if (scrollable > 0) {
+      readerState.scrollPercent = Math.round((el.scrollTop / scrollable) * 100);
+    } else {
+      readerState.scrollPercent = 0;
+    }
+    // update reading overlay if bookmark is active
+    var key = readerState.bookId + ":" + readerState.currentChapter;
+    if (readerState.bookmarks[key] !== undefined) {
+      updateReadingOverlay();
+    }
+  });
+
+  // restore bookmarks and completed chapters from localStorage
+  try {
+    var savedBm = localStorage.getItem("shared_read_bookmarks");
+    if (savedBm) readerState.bookmarks = JSON.parse(savedBm);
+  } catch (e) {}
+  try {
+    var savedComp = localStorage.getItem("shared_read_completed");
+    if (savedComp) readerState.completedChapters = JSON.parse(savedComp);
+  } catch (e) {}
+
   initDraggableFab();
   initDraggableChatPanel();
+}
+
+// ==================== Bookmark ====================
+
+function doBookmark() {
+  if (!readerState.bookId) return;
+  var key = readerState.bookId + ":" + readerState.currentChapter;
+  var btn = document.getElementById("reader-bookmark-btn");
+
+  if (readerState.bookmarks[key] !== undefined) {
+    // clear bookmark
+    delete readerState.bookmarks[key];
+    btn.classList.remove("active");
+    btn.textContent = "📌";
+    showBookmarkToast("书签已取消");
+    removeReadingOverlay();
+  } else {
+    // set bookmark at current scroll position
+    readerState.bookmarks[key] = readerState.scrollPercent;
+    btn.classList.add("active");
+    btn.textContent = "📌 已标记";
+    showBookmarkToast("书签已放置 · 高亮区域为传入内容");
+    updateReadingOverlay();
+  }
+  localStorage.setItem("shared_read_bookmarks", JSON.stringify(readerState.bookmarks));
+}
+
+function updateBookmarkButton() {
+  var btn = document.getElementById("reader-bookmark-btn");
+  if (!btn) return;
+  var key = readerState.bookId + ":" + readerState.currentChapter;
+  if (readerState.bookmarks[key] !== undefined) {
+    btn.classList.add("active");
+    btn.textContent = "📌 已标记";
+    updateReadingOverlay();
+  } else {
+    btn.classList.remove("active");
+    btn.textContent = "📌";
+    removeReadingOverlay();
+  }
+}
+
+function showBookmarkToast(text) {
+  var el = document.getElementById("capsule-toast");
+  var textEl = el.querySelector(".capsule-text");
+  var oldText = textEl.textContent;
+  textEl.textContent = text;
+  el.classList.add("show");
+  setTimeout(function () {
+    el.classList.remove("show");
+    textEl.textContent = oldText;
+  }, 2500);
+}
+
+// ==================== Reading Overlay (visual indicator) ====================
+
+function updateReadingOverlay() {
+  var body = document.getElementById("reader-body");
+  if (!body || !readerState.bookId) return;
+
+  var key = readerState.bookId + ":" + readerState.currentChapter;
+  var bookmarkPct = readerState.bookmarks[key];
+  if (bookmarkPct === undefined) {
+    removeReadingOverlay();
+    return;
+  }
+
+  var scrollable = body.scrollHeight - body.clientHeight;
+  var bookmarkPx = scrollable > 0 ? (bookmarkPct / 100) * scrollable : 0;
+  var currentPx = body.scrollTop + body.clientHeight;
+
+  // overlay covers from bookmark position to current viewport bottom
+  var top = bookmarkPx;
+  var height = currentPx - bookmarkPx;
+  if (height < 0) height = 0;
+
+  var overlay = body.querySelector(".reading-window-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "reading-window-overlay";
+    body.style.position = "relative";
+    body.appendChild(overlay);
+  }
+
+  overlay.style.top = top + "px";
+  overlay.style.height = height + "px";
+}
+
+function removeReadingOverlay() {
+  var body = document.getElementById("reader-body");
+  if (!body) return;
+  var overlay = body.querySelector(".reading-window-overlay");
+  if (overlay) overlay.remove();
+}
+
+// ==================== Chapter Checkin (打卡) ====================
+
+function doCheckin() {
+  if (!readerState.bookId) return;
+  var key = readerState.bookId + ":" + readerState.currentChapter;
+  var btn = document.getElementById("reader-checkin-btn");
+
+  if (readerState.completedChapters[key]) return; // already completed
+
+  btn.disabled = true;
+
+  apiPost("chapter/complete", {
+    book_id: readerState.bookId,
+    chapter_index: readerState.currentChapter,
+  }).then(function (res) {
+    if (res.success) {
+      readerState.completedChapters[key] = true;
+      localStorage.setItem("shared_read_completed", JSON.stringify(readerState.completedChapters));
+      btn.classList.add("completed");
+      btn.textContent = "✓ 已打卡";
+      showCheckinToast();
+    } else {
+      btn.disabled = false;
+    }
+  }).catch(function () {
+    btn.disabled = false;
+  });
+}
+
+function updateCheckinButton() {
+  var btn = document.getElementById("reader-checkin-btn");
+  if (!btn) return;
+  var key = readerState.bookId + ":" + readerState.currentChapter;
+  if (readerState.completedChapters[key]) {
+    btn.classList.add("completed");
+    btn.textContent = "✓ 已打卡";
+    btn.disabled = true;
+  } else {
+    btn.classList.remove("completed");
+    btn.textContent = "✓ 打卡";
+    btn.disabled = false;
+  }
+}
+
+function showCheckinToast() {
+  // reuse capsule toast mechanism
+  var el = document.getElementById("capsule-toast");
+  var textEl = el.querySelector(".capsule-text");
+  var oldText = textEl.textContent;
+  textEl.textContent = "打卡成功 ✦";
+  el.classList.add("show");
+  setTimeout(function () {
+    el.classList.remove("show");
+    textEl.textContent = oldText;
+  }, 3000);
 }
 
 // ==================== Reading Progress ====================
@@ -1287,7 +1496,7 @@ function renderNotesTab() {
   var cardsHtml = Object.keys(byChapter).sort(function (a, b) { return a - b; }).map(function (chIdx) {
     var group = byChapter[chIdx];
     var itemsHtml = group.items.map(function (h) {
-      return '<div class="note-item">' +
+      return '<div class="note-item" data-jump-book="' + currentNoteBook + '" data-jump-chapter="' + h.chapter + '" title="点击跳转到原文">' +
         '<div class="note-item-content">' + formatHighlightWithContext(h) + '</div>' +
         '<button class="note-delete-btn" data-book-id="' + currentNoteBook + '" data-text="' + escapeAttr(h.text) + '" data-chapter="' + h.chapter + '" title="删除划线">×</button>' +
         '</div>';
@@ -1304,8 +1513,23 @@ function renderNotesTab() {
     renderNotesTab();
   });
 
+  container.querySelectorAll(".note-item[data-jump-book]").forEach(function (item) {
+    item.addEventListener("click", function (e) {
+      // don't jump if clicking the delete button
+      if (e.target.closest(".note-delete-btn")) return;
+      var bookId = item.dataset.jumpBook;
+      var chapter = parseInt(item.dataset.jumpChapter);
+      if (bookId && !isNaN(chapter)) {
+        openReader(bookId);
+        // wait for chapters to load, then jump to the specific chapter
+        setTimeout(function () { loadChapterContent(chapter); }, 500);
+      }
+    });
+  });
+
   container.querySelectorAll(".note-delete-btn").forEach(function (btn) {
-    btn.addEventListener("click", function () {
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
       var bookId = btn.dataset.bookId;
       var text = btn.dataset.text;
       var chapter = parseInt(btn.dataset.chapter);
@@ -1395,7 +1619,88 @@ function escapeAttr(str) {
   var STAR_COUNT = 25;
   var MAX_SIZE = 4;
 
+  // particle config (loaded from localStorage)
+  var particleConfig = {
+    enabled: true,
+    shape: "heart",  // heart, star, circle, snow
+    color: "theme",  // theme, white, gold, pink
+  };
+
+  function loadParticleConfig() {
+    try {
+      var saved = localStorage.getItem("shared_read_particles");
+      if (saved) {
+        var parsed = JSON.parse(saved);
+        if (parsed.enabled !== undefined) particleConfig.enabled = parsed.enabled;
+        if (parsed.shape) particleConfig.shape = parsed.shape;
+        if (parsed.color) particleConfig.color = parsed.color;
+      }
+    } catch (e) {}
+  }
+
+  function saveParticleConfig() {
+    localStorage.setItem("shared_read_particles", JSON.stringify(particleConfig));
+    saveProfileToServer("particles", particleConfig);
+  }
+
+  function getParticleColor() {
+    switch (particleConfig.color) {
+      case "white": return "rgba(255, 255, 255, 0.8)";
+      case "gold": return "rgba(232, 200, 122, 0.8)";
+      case "pink": return "rgba(232, 160, 184, 0.8)";
+      default: // "theme" - use CSS variable
+        var style = getComputedStyle(document.documentElement);
+        var primary = style.getPropertyValue("--heart-color").trim();
+        return primary || "rgba(200, 160, 220, 0.8)";
+    }
+  }
+
+  function drawParticle(s) {
+    var alpha = s.opacity * (0.6 + 0.4 * Math.sin(s.pulse));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(s.x, s.y);
+    ctx.scale(s.size / 5, s.size / 5);
+    ctx.fillStyle = getParticleColor();
+
+    switch (particleConfig.shape) {
+      case "star":
+        // four-pointed star (✦)
+        ctx.beginPath();
+        ctx.moveTo(0, -6);
+        ctx.quadraticCurveTo(1, -1, 6, 0);
+        ctx.quadraticCurveTo(1, 1, 0, 6);
+        ctx.quadraticCurveTo(-1, 1, -6, 0);
+        ctx.quadraticCurveTo(-1, -1, 0, -6);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      case "circle":
+        ctx.beginPath();
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case "snow":
+        ctx.font = "10px serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("❄", 0, 0);
+        break;
+      default: // heart
+        ctx.beginPath();
+        ctx.moveTo(0, -3);
+        ctx.bezierCurveTo(-5, -8, -10, -2, 0, 5);
+        ctx.bezierCurveTo(10, -2, 5, -8, 0, -3);
+        ctx.closePath();
+        ctx.fill();
+        break;
+    }
+
+    ctx.restore();
+  }
+
   function initStars() {
+    loadParticleConfig();
     canvas = document.getElementById("stars-canvas");
     if (!canvas) return;
     ctx = canvas.getContext("2d");
@@ -1405,7 +1710,7 @@ function escapeAttr(str) {
       stars.push(createStar());
     }
     window.addEventListener("resize", resize);
-    animate();
+    if (particleConfig.enabled) animate();
   }
 
   function resize() {
@@ -1427,42 +1732,47 @@ function escapeAttr(str) {
   }
 
   function animate() {
+    if (!particleConfig.enabled) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
-
-      // move
       s.x += s.speedX;
       s.y += s.speedY;
       s.pulse += s.pulseSpeed;
-
-      // wrap around
       if (s.x < -10) s.x = canvas.width + 10;
       if (s.x > canvas.width + 10) s.x = -10;
       if (s.y < -10) s.y = canvas.height + 10;
       if (s.y > canvas.height + 10) s.y = -10;
-
-      // pulsing opacity
-      var alpha = s.opacity * (0.6 + 0.4 * Math.sin(s.pulse));
-
-      // draw heart
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(s.x, s.y);
-      ctx.scale(s.size / 5, s.size / 5);
-      ctx.fillStyle = "rgba(200, 160, 220, 0.8)";
-      ctx.beginPath();
-      ctx.moveTo(0, -3);
-      ctx.bezierCurveTo(-5, -8, -10, -2, 0, 5);
-      ctx.bezierCurveTo(10, -2, 5, -8, 0, -3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+      drawParticle(s);
     }
-
     animId = requestAnimationFrame(animate);
   }
+
+  // expose for settings panel
+  window._particleControl = {
+    setEnabled: function (enabled) {
+      particleConfig.enabled = enabled;
+      saveParticleConfig();
+      if (enabled) {
+        animate();
+      } else {
+        if (animId) cancelAnimationFrame(animId);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    },
+    setShape: function (shape) {
+      particleConfig.shape = shape;
+      saveParticleConfig();
+    },
+    setColor: function (color) {
+      particleConfig.color = color;
+      saveParticleConfig();
+    },
+    getConfig: function () { return particleConfig; },
+  };
 
   // start after DOM ready
   if (document.readyState === "loading") {
@@ -1518,8 +1828,264 @@ function escapeAttr(str) {
   });
 })();
 
+// ==================== Particle Settings ====================
+
+(function initParticleSettings() {
+  document.addEventListener("DOMContentLoaded", function () {
+    var toggle = document.getElementById("particle-toggle");
+    var options = document.getElementById("particle-options");
+    var shapePicker = document.getElementById("particle-shape-picker");
+    var colorPicker = document.getElementById("particle-color-picker");
+
+    if (!toggle || !window._particleControl) return;
+
+    var config = window._particleControl.getConfig();
+
+    // restore state
+    toggle.checked = config.enabled;
+    if (!config.enabled && options) options.classList.add("hidden");
+
+    // restore active shape
+    if (shapePicker) {
+      shapePicker.querySelectorAll(".particle-shape-btn").forEach(function (btn) {
+        btn.classList.toggle("active", btn.dataset.shape === config.shape);
+      });
+    }
+
+    // restore active color
+    if (colorPicker) {
+      colorPicker.querySelectorAll(".particle-color-btn").forEach(function (btn) {
+        btn.classList.toggle("active", btn.dataset.color === config.color);
+      });
+    }
+
+    // toggle binding
+    toggle.addEventListener("change", function () {
+      window._particleControl.setEnabled(toggle.checked);
+      if (options) {
+        if (toggle.checked) options.classList.remove("hidden");
+        else options.classList.add("hidden");
+      }
+    });
+
+    // shape binding
+    if (shapePicker) {
+      shapePicker.querySelectorAll(".particle-shape-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          shapePicker.querySelectorAll(".particle-shape-btn").forEach(function (b) { b.classList.remove("active"); });
+          btn.classList.add("active");
+          window._particleControl.setShape(btn.dataset.shape);
+        });
+      });
+    }
+
+    // color binding
+    if (colorPicker) {
+      colorPicker.querySelectorAll(".particle-color-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          colorPicker.querySelectorAll(".particle-color-btn").forEach(function (b) { b.classList.remove("active"); });
+          btn.classList.add("active");
+          window._particleControl.setColor(btn.dataset.color);
+        });
+      });
+    }
+  });
+})();
+
+// ==================== PWA Service Worker ====================
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(function () {});
+}
+
 // ==================== Start ====================
 init();
+
+// ==================== Accordion ====================
+
+function initAccordions() {
+  document.querySelectorAll(".accordion-card").forEach(function (card) {
+    var header = card.querySelector(".accordion-header");
+    if (!header) return;
+    // remove old listeners by cloning
+    var newHeader = header.cloneNode(true);
+    header.parentNode.replaceChild(newHeader, header);
+    newHeader.addEventListener("click", function () {
+      // toggle this card
+      var isOpen = card.classList.contains("open");
+      // close all others (single-open mode)
+      document.querySelectorAll(".accordion-card.open").forEach(function (c) {
+        if (c !== card) c.classList.remove("open");
+      });
+      card.classList.toggle("open", !isOpen);
+    });
+  });
+}
+
+// ==================== Stats ====================
+
+async function loadStats() {
+  try {
+    var res = await apiGet("stats");
+    if (res.success && res.stats) {
+      var s = res.stats;
+      document.getElementById("stat-books").textContent = s.total_books + "本";
+      document.getElementById("stat-user-chapters").textContent = s.user_chapters_read + "章";
+      document.getElementById("stat-bot-chapters").textContent = s.bot_chapters_read + "章";
+      document.getElementById("stat-days").textContent = s.reading_days + "天";
+      document.getElementById("stat-highlights").textContent = s.highlights_count + "条";
+      document.getElementById("stat-messages").textContent = s.total_messages + "条";
+    }
+  } catch (e) {}
+}
+
+// ==================== Bot Activity ====================
+
+async function loadBotActivity() {
+  var container = document.getElementById("bot-activity-list");
+  if (!container) return;
+  try {
+    var res = await apiGet("books");
+    if (!res.success) return;
+    var books = res.books;
+    var items = [];
+    for (var i = 0; i < books.length; i++) {
+      var book = books[i];
+      var progRes = await apiGet("bot-progress/" + book.id);
+      if (progRes.success && progRes.percent > 0) {
+        items.push({
+          title: book.title,
+          percent: progRes.percent,
+        });
+      }
+    }
+    if (items.length === 0) {
+      container.innerHTML = '<div class="memory-empty">他还没开始读书</div>';
+      return;
+    }
+    container.innerHTML = items.map(function (item) {
+      return '<div class="bot-activity-item">' +
+        '<span class="activity-book">《' + escapeHtml(item.title) + '》</span>' +
+        ' 已读 ' + item.percent + '%' +
+        '</div>';
+    }).join("");
+  } catch (e) {
+    container.innerHTML = '<div class="memory-empty">加载失败</div>';
+  }
+}
+
+// ==================== Note Box ====================
+
+async function loadNoteBox() {
+  var container = document.getElementById("note-box-list");
+  if (!container) return;
+  try {
+    var res = await apiGet("profile");
+    var notes = (res.success && res.profile && res.profile.note_box) || [];
+    if (notes.length === 0) {
+      container.innerHTML = '<div class="memory-empty">还没有纸条</div>';
+      return;
+    }
+    container.innerHTML = notes.slice().reverse().map(function (n) {
+      var timeStr = n.time ? new Date(n.time).toLocaleString("zh-CN") : "";
+      return '<div class="note-box-item">' +
+        escapeHtml(n.content) +
+        '<span class="note-box-time">' + timeStr + '</span>' +
+        '</div>';
+    }).join("");
+  } catch (e) {
+    container.innerHTML = '<div class="memory-empty">加载失败</div>';
+  }
+}
+
+function sendNoteBox() {
+  var textarea = document.getElementById("note-box-textarea");
+  var content = textarea.value.trim();
+  if (!content) return;
+  textarea.value = "";
+
+  apiGet("profile").then(function (res) {
+    var profile = (res.success && res.profile) || {};
+    var notes = profile.note_box || [];
+    notes.push({ content: content, time: Date.now() });
+    return apiPost("profile", { note_box: notes });
+  }).then(function () {
+    loadNoteBox();
+  }).catch(function () {});
+}
+
+// ==================== Connection Info ====================
+
+function loadConnectionInfo() {
+  var urlEl = document.getElementById("conn-url");
+  var bookEl = document.getElementById("conn-book");
+  var sessionEl = document.getElementById("conn-session");
+  if (urlEl) urlEl.textContent = window.location.origin;
+  if (bookEl) bookEl.textContent = state.currentBookTitle || "未选择";
+  if (sessionEl) sessionEl.textContent = state.currentBookId ? "活跃" : "未连接";
+}
+
+// ==================== Bot Memories ====================
+
+async function loadBotMemories() {
+  var container = document.getElementById("memory-bot-list");
+  var countEl = document.getElementById("bot-memory-count");
+  if (!container) return;
+
+  try {
+    var res = await apiGet("bot-memories");
+    if (!res.success) return;
+    var memories = res.memories || [];
+    if (countEl) countEl.textContent = memories.length;
+
+    if (memories.length === 0) {
+      container.innerHTML = '<div class="memory-empty">还没有阅读记忆</div>';
+      return;
+    }
+
+    // group by book
+    var byBook = {};
+    memories.forEach(function (m) {
+      if (!byBook[m.book_id]) byBook[m.book_id] = { title: m.book_title, chapters: [] };
+      byBook[m.book_id].chapters.push(m);
+    });
+
+    container.innerHTML = Object.keys(byBook).map(function (bookId) {
+      var book = byBook[bookId];
+      var chaptersHtml = book.chapters.map(function (m) {
+        return '<div class="bot-memory-chapter" onclick="showBotMemoryDetail(\'' + escapeAttr(m.book_title) + '\', ' + m.chapter_index + ', this)" data-full="' + escapeAttr(m.summary) + '">' +
+          '<span class="bot-memory-ch-label">第' + (m.chapter_index + 1) + '章</span>' +
+          '<span class="bot-memory-ch-preview">' + escapeHtml(m.summary.substring(0, 50)) + (m.summary.length > 50 ? '...' : '') + '</span>' +
+          '</div>';
+      }).join("");
+
+      return '<div class="bot-memory-book">' +
+        '<div class="bot-memory-book-header" onclick="this.parentElement.classList.toggle(\'open\')">' +
+        '<span>📖 《' + escapeHtml(book.title) + '》</span>' +
+        '<span class="bot-memory-book-count">' + book.chapters.length + '章</span>' +
+        '</div>' +
+        '<div class="bot-memory-book-body">' + chaptersHtml + '</div>' +
+        '</div>';
+    }).join("");
+  } catch (e) {
+    container.innerHTML = '<div class="memory-empty">加载失败</div>';
+  }
+}
+
+function showBotMemoryDetail(bookTitle, chapterIndex, el) {
+  var modal = document.getElementById("memory-modal");
+  var title = document.getElementById("memory-modal-title");
+  var body = document.getElementById("memory-modal-body");
+  var deleteAllBtn = document.getElementById("memory-modal-delete-all");
+
+  var fullText = el.getAttribute("data-full") || "";
+
+  title.textContent = "《" + bookTitle + "》第" + (chapterIndex + 1) + "章 · 阅读记忆";
+  body.innerHTML = '<div class="memory-msg-item"><span class="memory-msg-content">' + escapeHtml(fullText) + '</span></div>';
+  deleteAllBtn.style.display = "none";
+
+  modal.classList.add("open");
+}
 
 // ==================== Memory Management ====================
 
@@ -1541,6 +2107,7 @@ async function loadMemoryData() {
     memoryState.activeSessions = activeRes.sessions || [];
 
     renderMemoryLists();
+    loadBotMemories();
   } catch (e) {
     console.error("Failed to load memory data:", e);
   }
@@ -1794,6 +2361,16 @@ async function deleteCurrentArchive() {
     if (modal) {
       modal.addEventListener("click", function (e) {
         if (e.target === modal) closeMemoryModal();
+      });
+    }
+
+    // note box send button
+    var noteBoxSend = document.getElementById("note-box-send");
+    if (noteBoxSend) noteBoxSend.addEventListener("click", sendNoteBox);
+    var noteBoxTextarea = document.getElementById("note-box-textarea");
+    if (noteBoxTextarea) {
+      noteBoxTextarea.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendNoteBox(); }
       });
     }
   });

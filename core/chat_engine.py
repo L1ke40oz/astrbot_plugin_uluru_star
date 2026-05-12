@@ -65,6 +65,8 @@ class ChatEngine:
         book_title: str = "",
         chapter_title: str = "",
         chapter_text: str = "",
+        scroll_percent: float | None = None,
+        bookmark_percent: float | None = None,
     ) -> str:
         """Build the full system prompt for the reading companion."""
         persona_prompt = await self._get_persona_prompt()
@@ -75,13 +77,13 @@ class ChatEngine:
         if chapter_title:
             context_info += f"\n当前章节：{chapter_title}"
 
-        # inject current chapter content (truncated if too long)
+        # inject current chapter content using sliding window
         chapter_injection = ""
         if chapter_text:
-            max_len = 5000
-            if len(chapter_text) > max_len:
-                chapter_text = chapter_text[:max_len] + "\n...(章节内容过长，已截断)"
-            chapter_injection = f"\n\n[当前章节内容]\n{chapter_text}\n[/当前章节内容]"
+            injected_text = self._extract_reading_window(
+                chapter_text, scroll_percent, bookmark_percent
+            )
+            chapter_injection = f"\n\n[当前章节内容]\n{injected_text}\n[/当前章节内容]"
 
         # append reading-specific instructions
         reading_instructions = """
@@ -180,16 +182,78 @@ class ChatEngine:
         system_prompt = await self._build_system_prompt()
         return await self._call_llm(book_id, user_msg, system_prompt)
 
+    def _extract_reading_window(
+        self,
+        chapter_text: str,
+        scroll_percent: float | None = None,
+        bookmark_percent: float | None = None,
+    ) -> str:
+        """Extract a reading window from chapter text based on scroll/bookmark position.
+
+        - Short chapters (<=3000 chars): return the whole thing.
+        - Otherwise, use a 2000-char window centered on scroll position,
+          or from bookmark to scroll if both are set.
+        - Cap at 3000 chars max.
+        """
+        max_inject = 3000
+        window_size = 2000
+
+        if len(chapter_text) <= max_inject:
+            return chapter_text
+
+        total_len = len(chapter_text)
+
+        # determine scroll position in chars
+        scroll_pos = 0
+        if scroll_percent is not None:
+            scroll_pos = int((scroll_percent / 100.0) * total_len)
+        scroll_pos = max(0, min(scroll_pos, total_len))
+
+        if bookmark_percent is not None:
+            # extract from bookmark position to scroll position
+            bookmark_pos = int((bookmark_percent / 100.0) * total_len)
+            bookmark_pos = max(0, min(bookmark_pos, total_len))
+            start = min(bookmark_pos, scroll_pos)
+            end = max(bookmark_pos, scroll_pos)
+            # ensure we get at least window_size chars
+            if end - start < window_size:
+                mid = (start + end) // 2
+                start = max(0, mid - window_size // 2)
+                end = start + window_size
+        else:
+            # center window on scroll position
+            start = max(0, scroll_pos - window_size // 2)
+            end = start + window_size
+
+        # clamp
+        if end > total_len:
+            end = total_len
+            start = max(0, end - window_size)
+
+        extracted = chapter_text[start:end]
+
+        # cap at max_inject
+        if len(extracted) > max_inject:
+            extracted = extracted[:max_inject]
+
+        # add ellipsis indicators
+        prefix = "...\n" if start > 0 else ""
+        suffix = "\n..." if end < total_len else ""
+        return prefix + extracted + suffix
+
     async def chat(
         self,
         book_id: str,
         content: str,
         chapter_index: int | None = None,
+        scroll_percent: float | None = None,
+        bookmark_percent: float | None = None,
     ) -> str:
         """Handle a free-form chat message from the user.
 
         If chapter_index is provided and book_manager is available,
         injects the current chapter text into the system prompt.
+        scroll_percent and bookmark_percent control the reading window.
         """
         # resolve book title and chapter info
         book_title = ""
@@ -213,5 +277,7 @@ class ChatEngine:
             book_title=book_title,
             chapter_title=chapter_title,
             chapter_text=chapter_text,
+            scroll_percent=scroll_percent,
+            bookmark_percent=bookmark_percent,
         )
         return await self._call_llm(book_id, content, system_prompt)

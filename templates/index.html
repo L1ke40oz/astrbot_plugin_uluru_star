@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#a78bda" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="apple-touch-icon" href="/static/planet.png" />
   <title>乌鲁鲁星</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -77,12 +82,42 @@
         </svg>
       </div>
 
+      <!-- Reading Stats (inline on home page) -->
+      <section class="home-stats-section">
+        <div class="stats-grid" id="home-stats-grid">
+          <div class="stats-item">
+            <span class="stats-value" id="stat-books">-</span>
+            <span class="stats-label">书架</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-value" id="stat-user-chapters">-</span>
+            <span class="stats-label">你读了</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-value" id="stat-bot-chapters">-</span>
+            <span class="stats-label">他读了</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-value" id="stat-days">-</span>
+            <span class="stats-label">共读天数</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-value" id="stat-highlights">-</span>
+            <span class="stats-label">划线</span>
+          </div>
+          <div class="stats-item">
+            <span class="stats-value" id="stat-messages">-</span>
+            <span class="stats-label">对话</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Bookshelf -->
       <section class="shelf-section">
         <div class="shelf-header">
           <span class="shelf-title">书架</span>
           <button class="btn-upload" id="btn-upload">+ 上传</button>
-          <input type="file" id="file-input" accept=".epub" hidden />
+          <input type="file" id="file-input" accept=".epub,.txt" hidden />
         </div>
         <div class="shelf-grid-wrapper">
           <div class="shelf-grid" id="shelf-grid"></div>
@@ -99,20 +134,18 @@
       </section>
     </section>
 
-    <!-- === TAB: Tools === -->
+    <!-- === TAB: Tools (小窝) === -->
     <section class="tab-view" id="tab-tools">
       <div class="tools-container">
-        <h2 class="tools-title">🔧 工具箱</h2>
+        <h2 class="tools-title">✦ 小窝</h2>
 
-        <!-- Memory Management Section -->
+        <!-- Memory Management (flat style) -->
         <div class="tools-section">
           <div class="tools-section-header">
             <span class="tools-section-icon">🧠</span>
             <span class="tools-section-title">记忆管理</span>
-            <span class="tools-section-hint">管理乌鲁鲁星对话记录，删除不需要的记忆</span>
+            <span class="tools-section-hint">管理对话记录，删除不需要的记忆</span>
           </div>
-
-          <!-- Active sessions -->
           <div class="memory-group" id="memory-active-group">
             <div class="memory-group-header">
               <span class="memory-group-label">💬 当前会话</span>
@@ -122,8 +155,6 @@
               <div class="memory-empty">暂无活跃会话</div>
             </div>
           </div>
-
-          <!-- Archived sessions -->
           <div class="memory-group" id="memory-archive-group">
             <div class="memory-group-header">
               <span class="memory-group-label">📦 归档记录</span>
@@ -134,10 +165,73 @@
               <div class="memory-empty">暂无归档记录</div>
             </div>
           </div>
+
+          <!-- Bot chapter memories -->
+          <div class="memory-group" id="memory-bot-group">
+            <div class="memory-group-header">
+              <span class="memory-group-label">🧠 他的阅读记忆</span>
+              <span class="memory-group-count" id="bot-memory-count">0</span>
+            </div>
+            <div class="memory-list" id="memory-bot-list">
+              <div class="memory-empty">还没有阅读记忆</div>
+            </div>
+          </div>
         </div>
+
+        <!-- Bot Activity (flat style) -->
+        <div class="tools-section">
+          <div class="tools-section-header">
+            <span class="tools-section-icon">🤖</span>
+            <span class="tools-section-title">他的动态</span>
+            <span class="tools-section-hint">看看他最近在读什么</span>
+          </div>
+          <div class="bot-activity-list" id="bot-activity-list">
+            <div class="memory-empty">加载中...</div>
+          </div>
+        </div>
+
+        <!-- Note Box (flat style) -->
+        <div class="tools-section">
+          <div class="tools-section-header">
+            <span class="tools-section-icon">💌</span>
+            <span class="tools-section-title">纸条箱</span>
+            <span class="tools-section-hint">给他留张纸条吧</span>
+          </div>
+          <div class="note-box-input">
+            <textarea id="note-box-textarea" rows="3" placeholder="写点什么留给他..."></textarea>
+            <button class="note-box-send" id="note-box-send">留下纸条 ✦</button>
+          </div>
+          <div class="note-box-list" id="note-box-list">
+            <div class="memory-empty">还没有纸条</div>
+          </div>
+        </div>
+
+        <!-- Connection Info (flat style) -->
+        <div class="tools-section">
+          <div class="tools-section-header">
+            <span class="tools-section-icon">🔗</span>
+            <span class="tools-section-title">连接状态</span>
+            <span class="tools-section-hint">WebUI 与 AstrBot 连接信息</span>
+          </div>
+          <div class="connection-info" id="connection-info">
+            <div class="connection-row">
+              <span class="connection-label">WebUI 地址</span>
+              <span class="connection-value" id="conn-url">-</span>
+            </div>
+            <div class="connection-row">
+              <span class="connection-label">当前书籍</span>
+              <span class="connection-value" id="conn-book">未选择</span>
+            </div>
+            <div class="connection-row">
+              <span class="connection-label">会话状态</span>
+              <span class="connection-value" id="conn-session">-</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <!-- Memory detail modal -->
+      <!-- Memory detail modal (kept for compatibility) -->
       <div class="memory-modal" id="memory-modal">
         <div class="memory-modal-content">
           <div class="memory-modal-header">
@@ -220,6 +314,47 @@
               <button class="theme-dot" data-theme="tea" title="暖茶">
                 <span class="theme-dot-inner" style="background: linear-gradient(135deg, #f5efe0, #d4b88b, #b89a6b);"></span>
               </button>
+              <button class="theme-dot" data-theme="dark" title="深色">
+                <span class="theme-dot-inner" style="background: linear-gradient(135deg, #1a1525, #a78bda, #0e0c14);"></span>
+              </button>
+            </div>
+
+            <!-- Particle settings -->
+            <div class="settings-divider"></div>
+            <p class="settings-card-desc">背景漂浮粒子</p>
+            <div class="particle-settings">
+              <label class="toggle-row">
+                <span class="toggle-label">开启粒子</span>
+                <input type="checkbox" id="particle-toggle" class="toggle-input" checked />
+                <span class="toggle-slider"></span>
+              </label>
+              <div class="particle-options" id="particle-options">
+                <div class="particle-option-group">
+                  <span class="particle-option-label">形状</span>
+                  <div class="particle-shape-picker" id="particle-shape-picker">
+                    <button class="particle-shape-btn active" data-shape="heart" title="爱心">♡</button>
+                    <button class="particle-shape-btn" data-shape="star" title="星星">✦</button>
+                    <button class="particle-shape-btn" data-shape="circle" title="圆点">●</button>
+                  </div>
+                </div>
+                <div class="particle-option-group">
+                  <span class="particle-option-label">颜色</span>
+                  <div class="particle-color-picker" id="particle-color-picker">
+                    <button class="particle-color-btn active" data-color="theme" title="跟随主题">
+                      <span class="particle-color-swatch" style="background: var(--primary);"></span>
+                    </button>
+                    <button class="particle-color-btn" data-color="white" title="白色">
+                      <span class="particle-color-swatch" style="background: rgba(255,255,255,0.8);"></span>
+                    </button>
+                    <button class="particle-color-btn" data-color="gold" title="金色">
+                      <span class="particle-color-swatch" style="background: #e8c87a;"></span>
+                    </button>
+                    <button class="particle-color-btn" data-color="pink" title="粉色">
+                      <span class="particle-color-swatch" style="background: #e8a0b8;"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -253,10 +388,12 @@
       <p class="reader-placeholder">加载中...</p>
     </article>
 
-    <!-- Chapter nav (prev/next) + highlight -->
+    <!-- Chapter nav (prev/next) + highlight + bookmark + checkin -->
     <div class="reader-chapter-nav">
       <button class="reader-nav-btn" id="reader-prev-ch">‹ 上一章</button>
       <button class="reader-highlight-btn" id="reader-highlight-btn" title="划线选中文字">✦ 划线</button>
+      <button class="reader-bookmark-btn" id="reader-bookmark-btn" title="放置书签">📌</button>
+      <button class="reader-checkin-btn" id="reader-checkin-btn" title="本章打卡">✓ 打卡</button>
       <button class="reader-nav-btn" id="reader-next-ch">下一章 ›</button>
     </div>
 
@@ -283,11 +420,11 @@
   <!-- Bottom navigation bar -->
   <nav class="bottom-nav">
     <button class="nav-item" data-tab="tools" id="nav-tools">
-      <span class="nav-icon">🔧</span>
-      <span class="nav-label">工具箱</span>
+      <span class="nav-icon"><img src="/static/icons/tools.jpg" alt="工具箱" class="nav-icon-img" /></span>
+      <span class="nav-label">小窝</span>
     </button>
     <button class="nav-item" data-tab="placeholder" id="nav-placeholder">
-      <span class="nav-icon">🎯</span>
+      <span class="nav-icon"><img src="/static/icons/placeholder.jpg" alt="待定" class="nav-icon-img" /></span>
       <span class="nav-label">待定</span>
     </button>
     <button class="nav-item nav-center" data-tab="home" id="nav-home">
@@ -296,11 +433,11 @@
       </span>
     </button>
     <button class="nav-item" data-tab="notes" id="nav-notes">
-      <span class="nav-icon">📑</span>
+      <span class="nav-icon"><img src="/static/icons/notes.jpg" alt="笔记" class="nav-icon-img" /></span>
       <span class="nav-label">笔记</span>
     </button>
     <button class="nav-item" data-tab="settings" id="nav-settings">
-      <span class="nav-icon">⚙️</span>
+      <span class="nav-icon"><img src="/static/icons/settings.jpg" alt="设置" class="nav-icon-img" /></span>
       <span class="nav-label">设置</span>
     </button>
   </nav>

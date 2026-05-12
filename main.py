@@ -248,6 +248,23 @@ class SharedReadPlugin(Star):
                 book_lines.append("[/书架]")
                 memory_parts.append("\n".join(book_lines))
 
+            # 2c: recent chapter memories (bot's summaries of completed chapters)
+            if books:
+                memory_lines = []
+                for book in books[:10]:
+                    book_id = book.get("id", "")
+                    title = book.get("title", "未知")
+                    recent = self.bot_reader.get_recent_memories(book_id, count=5)
+                    if recent:
+                        for mem in recent:
+                            # one-line summary per chapter
+                            short = mem[:100] + "..." if len(mem) > 100 else mem
+                            memory_lines.append(f"  《{title}》: {short}")
+                if memory_lines:
+                    memory_parts.append(
+                        "[章节记忆]\n" + "\n".join(memory_lines) + "\n[/章节记忆]"
+                    )
+
             if not memory_parts:
                 return
 
@@ -474,6 +491,11 @@ class SharedReadPlugin(Star):
 
         if not chapter_done:
             status_parts.append("\n...(本章未读完，下次调用将继续)")
+        else:
+            # chapter finished - trigger summary generation in background
+            asyncio.create_task(
+                self.bot_reader.generate_chapter_summary(book_id, target_chapter)
+            )
 
         return "\n".join(status_parts) + f"\n\n以下是内容：\n{display_text}"
 

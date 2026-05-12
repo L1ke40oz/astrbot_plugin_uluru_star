@@ -129,6 +129,13 @@ class WebUIServer:
                 return FileResponse(path)
             raise HTTPException(404)
 
+        @app.get("/sw.js")
+        async def serve_sw():
+            path = self._get_template_path("sw.js")
+            if not path:
+                raise HTTPException(404)
+            return FileResponse(path, media_type="application/javascript")
+
         # --- Frontend config API ---
 
         @app.get("/api/config/frontend")
@@ -223,8 +230,10 @@ class WebUIServer:
 
         @app.post("/api/books/upload")
         async def api_upload_book(file: UploadFile = File(...)):
-            if not file.filename or not file.filename.endswith(".epub"):
-                raise HTTPException(400, detail="only .epub files are supported")
+            if not file.filename or not (
+                file.filename.endswith(".epub") or file.filename.endswith(".txt")
+            ):
+                raise HTTPException(400, detail="only .epub and .txt files are supported")
 
             file_bytes = await file.read()
             try:
@@ -337,14 +346,38 @@ class WebUIServer:
             book_id = data.get("book_id")
             content = data.get("content", "")
             chapter_index = data.get("chapter_index")
+            scroll_percent = data.get("scroll_percent")
+            bookmark_percent = data.get("bookmark_percent")
 
             if not book_id or not content:
                 raise HTTPException(400, detail="missing required fields")
 
             bot_reply = await self.chat_engine.chat(
-                book_id, content, chapter_index=chapter_index
+                book_id,
+                content,
+                chapter_index=chapter_index,
+                scroll_percent=scroll_percent,
+                bookmark_percent=bookmark_percent,
             )
             return {"success": True, "reply": bot_reply}
+
+        @app.post("/api/chapter/complete")
+        async def api_chapter_complete(request: Request):
+            """Mark a chapter as complete (打卡) and trigger bot summary."""
+            data = await request.json()
+            book_id = data.get("book_id")
+            chapter_index = data.get("chapter_index")
+
+            if not book_id or chapter_index is None:
+                raise HTTPException(400, detail="missing required fields")
+
+            # trigger bot summary generation in background
+            if self.bot_reader:
+                asyncio.create_task(
+                    self.bot_reader.generate_chapter_summary(book_id, chapter_index)
+                )
+
+            return {"success": True, "message": "打卡成功"}
 
         # --- Data query APIs ---
 
@@ -367,6 +400,27 @@ class WebUIServer:
             if not self.bot_reader:
                 return {"success": True, "percent": 0}
             return {"success": True, "percent": self.bot_reader.get_bot_progress_percent(book_id)}
+
+        @app.get("/api/bot-memories")
+        async def api_bot_memories():
+            """Get all bot chapter memories for display."""
+            if not self.bot_reader:
+                return {"success": True, "memories": []}
+            all_memories = self.bot_reader.memories
+            result = []
+            for book_id, chapters in all_memories.items():
+                # get book title
+                books = self.book_manager.list_books()
+                book = next((b for b in books if b["id"] == book_id), None)
+                book_title = book.get("title", "未知") if book else "未知"
+                for ch_idx, summary in sorted(chapters.items(), key=lambda x: int(x[0])):
+                    result.append({
+                        "book_id": book_id,
+                        "book_title": book_title,
+                        "chapter_index": int(ch_idx),
+                        "summary": summary,
+                    })
+            return {"success": True, "memories": result}
 
         # --- User progress API ---
 
@@ -393,6 +447,60 @@ class WebUIServer:
             if not self.bot_reader:
                 return {"success": True, "percent": 0}
             return {"success": True, "percent": self.bot_reader.get_user_progress_percent(book_id)}
+
+        # --- Reading Stats API ---
+
+        @app.get("/api/stats")
+        async def api_stats():
+            """Get reading statistics."""
+            books = self.book_manager.list_books()
+            total_books = len(books)
+            total_chapters = sum(b.get("chapter_count", 0) for b in books)
+
+            # user reading stats
+            user_chapters_read = 0
+            bot_chapters_read = 0
+            if self.bot_reader:
+                for book in books:
+                    bid = book["id"]
+                    up = self.bot_reader.user_progress.get(bid, {})
+                    bp = self.bot_reader.progress.get(bid, {})
+                    if up:
+                        user_chapters_read += up.get("current_chapter", 0) + 1
+                    if bp:
+                        bot_chapters_read += bp.get("current_chapter", 0) + 1
+
+            # reading days (from user progress timestamps)
+            reading_days = set()
+            if self.bot_reader:
+                for prog in self.bot_reader.user_progress.values():
+                    ts = prog.get("last_read_at", 0)
+                    if ts:
+                        from datetime import datetime
+                        day = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+                        reading_days.add(day)
+
+            # highlights count
+            highlights_count = 0
+            for book in books:
+                highlights_count += len(self.book_manager.get_highlights(book["id"]))
+
+            # sessions count
+            sessions = self.session_manager.list_book_sessions()
+            total_messages = sum(s.get("message_count", 0) for s in sessions)
+
+            return {
+                "success": True,
+                "stats": {
+                    "total_books": total_books,
+                    "total_chapters": total_chapters,
+                    "user_chapters_read": user_chapters_read,
+                    "bot_chapters_read": bot_chapters_read,
+                    "reading_days": len(reading_days),
+                    "highlights_count": highlights_count,
+                    "total_messages": total_messages,
+                },
+            }
 
         # --- Memory Management APIs ---
 

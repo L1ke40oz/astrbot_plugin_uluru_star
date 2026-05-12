@@ -57,13 +57,117 @@ class BookManager:
         return sorted(books, key=lambda b: b["added_at"], reverse=True)
 
     def add_book(self, filename: str, file_bytes: bytes) -> dict[str, Any]:
-        """Add an epub book to the library."""
+        """Add an epub or txt book to the library."""
+        book_id = uuid.uuid4().hex[:10]
+
+        if filename.lower().endswith(".txt"):
+            return self._add_txt_book(book_id, filename, file_bytes)
+        elif filename.lower().endswith(".epub"):
+            return self._add_epub_book(book_id, filename, file_bytes)
+        else:
+            raise ValueError("Unsupported file format. Only .epub and .txt are supported.")
+
+    def _add_txt_book(self, book_id: str, filename: str, file_bytes: bytes) -> dict[str, Any]:
+        """Parse and add a txt book."""
+        import re
+        import chardet
+
+        # detect encoding
+        detected = chardet.detect(file_bytes)
+        encoding = detected.get("encoding", "utf-8") or "utf-8"
+        try:
+            text = file_bytes.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            text = file_bytes.decode("utf-8", errors="replace")
+
+        # save txt file
+        txt_path = self.epub_dir / f"{book_id}.txt"
+        txt_path.write_bytes(file_bytes)
+
+        title = filename.replace(".txt", "").replace(".TXT", "")
+
+        # split into chapters by common patterns
+        chapter_pattern = re.compile(
+            r'^(第[零一二三四五六七八九十百千万\d]+[章节回卷]|Chapter\s+\d+|CHAPTER\s+\d+)',
+            re.MULTILINE
+        )
+        splits = list(chapter_pattern.finditer(text))
+
+        chapters = []
+        if splits:
+            # add prologue if there's content before first chapter marker
+            if splits[0].start() > 100:
+                prologue_text = text[:splits[0].start()].strip()
+                if prologue_text:
+                    chapters.append({
+                        "index": 0,
+                        "title": "序",
+                        "html": f"<p>{'</p><p>'.join(prologue_text.split(chr(10)))}</p>",
+                        "text_preview": prologue_text[:200],
+                    })
+
+            for i, match in enumerate(splits):
+                start = match.start()
+                end = splits[i + 1].start() if i + 1 < len(splits) else len(text)
+                chunk = text[start:end].strip()
+
+                # extract title from first line
+                lines = chunk.split("\n", 1)
+                ch_title = lines[0].strip()
+                ch_body = lines[1].strip() if len(lines) > 1 else ""
+
+                html = f"<p>{'</p><p>'.join(ch_body.split(chr(10)))}</p>"
+                chapters.append({
+                    "index": len(chapters),
+                    "title": ch_title,
+                    "html": html,
+                    "text_preview": ch_body[:200],
+                })
+        else:
+            # no chapter markers found, split by fixed size (~3000 chars)
+            chunk_size = 3000
+            for i in range(0, len(text), chunk_size):
+                chunk = text[i:i + chunk_size].strip()
+                if not chunk:
+                    continue
+                html = f"<p>{'</p><p>'.join(chunk.split(chr(10)))}</p>"
+                chapters.append({
+                    "index": len(chapters),
+                    "title": f"第{len(chapters) + 1}节",
+                    "html": html,
+                    "text_preview": chunk[:200],
+                })
+
+        if not chapters:
+            txt_path.unlink(missing_ok=True)
+            raise ValueError("txt 文件内容为空或无法解析章节")
+
+        # cache chapters
+        cache_file = self.cache_dir / f"{book_id}.json"
+        cache_file.write_text(
+            json.dumps(chapters, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        # save to library index
+        book_info = {
+            "title": title,
+            "author": "Unknown",
+            "filename": filename,
+            "chapter_count": len(chapters),
+            "added_at": time.time(),
+        }
+        self.library.setdefault("books", {})[book_id] = book_info
+        self._save_library()
+
+        return {"id": book_id, **book_info}
+
+    def _add_epub_book(self, book_id: str, filename: str, file_bytes: bytes) -> dict[str, Any]:
+        """Parse and add an epub book."""
         import ebooklib
         from ebooklib import epub
         from bs4 import BeautifulSoup
         import io
-
-        book_id = uuid.uuid4().hex[:10]
 
         # save epub file
         epub_path = self.epub_dir / f"{book_id}.epub"

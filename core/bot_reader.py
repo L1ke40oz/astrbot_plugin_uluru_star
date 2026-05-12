@@ -35,6 +35,7 @@ class BotReader:
         self.progress_file = data_dir / "bot_reading_progress.json"
         self.user_progress_file = data_dir / "user_reading_progress.json"
         self.target_session_file = data_dir / "target_session.json"
+        self.memories_file = data_dir / "bot_chapter_memories.json"
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -43,6 +44,7 @@ class BotReader:
         self.progress: dict[str, Any] = self._load_progress()
         self.user_progress: dict[str, Any] = self._load_user_progress()
         self.target_session: str | None = self._load_target_session()
+        self.memories: dict[str, Any] = self._load_memories()
         self.last_user_activity: float = 0  # timestamp of last user message
 
     def _load_progress(self) -> dict[str, Any]:
@@ -114,6 +116,41 @@ class BotReader:
                 pass
         return None
 
+    def _load_memories(self) -> dict[str, Any]:
+        """Load bot chapter memories from disk."""
+        if self.memories_file.exists():
+            try:
+                return json.loads(self.memories_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_memories(self):
+        """Persist bot chapter memories."""
+        self.memories_file.write_text(
+            json.dumps(self.memories, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def get_chapter_memory(self, book_id: str, chapter_index: int) -> str | None:
+        """Get the bot's memory summary for a specific chapter."""
+        book_memories = self.memories.get(book_id, {})
+        return book_memories.get(str(chapter_index))
+
+    def get_recent_memories(self, book_id: str, count: int = 5) -> list[str]:
+        """Get the most recent chapter memory summaries for a book."""
+        book_memories = self.memories.get(book_id, {})
+        if not book_memories:
+            return []
+        # sort by chapter index (numeric) and take the last N
+        sorted_items = sorted(book_memories.items(), key=lambda x: int(x[0]))
+        return [v for _, v in sorted_items[-count:]]
+
+    def _get_completed_chapters(self, book_id: str) -> list[int]:
+        """Get list of completed chapter indices for a book (those with memories)."""
+        book_memories = self.memories.get(book_id, {})
+        return sorted(int(k) for k in book_memories.keys())
+
     def save_target_session(self, session_id: str):
         """Save the target session ID (called when user uses /乌鲁鲁星 command)."""
         self.target_session = session_id
@@ -141,28 +178,88 @@ class BotReader:
     def get_bot_progress_percent(self, book_id: str) -> int:
         """Get bot's reading progress as a percentage.
 
-        Accounts for partial chapter reading (offset within a chapter).
-        current_chapter is 0-indexed and represents the chapter the bot is
-        currently reading (or has just started). Progress is calculated as:
-        - If offset > 0: partway through current_chapter
-        - If offset == 0: just arrived at current_chapter (not yet finished it)
+        Progress is strictly based on completed chapters (those with memories).
+        No memory = no progress.
         """
-        prog = self.progress.get(book_id)
-        if not prog:
+        completed = self._get_completed_chapters(book_id)
+        if not completed:
             return 0
-        total = prog.get("total_chapters", 1)
+        chapters = self.book_manager.get_chapters(book_id)
+        total = len(chapters) if chapters else 0
         if total <= 0:
             return 0
-        current = prog.get("current_chapter", 0)
-        offset = prog.get("current_offset", 0)
-        # current_chapter = chapter being read (0-indexed)
-        # progress = chapters completed / total
-        # if offset > 0, we're partway through current chapter (count as partial)
-        if offset > 0:
-            effective = current + 0.5
-        else:
-            effective = current
-        return min(99, round((effective / total) * 100))
+        return min(99, round((len(completed) / total) * 100))
+
+    async def generate_chapter_summary(self, book_id: str, chapter_index: int):
+        """Generate a bot memory summary for a completed chapter.
+
+        Combines chapter text, highlights, and chat history to produce
+        a short summary from the bot's perspective.
+        """
+        try:
+            # get chapter text
+            chapter_text = self.book_manager.get_chapter_text(book_id, chapter_index)
+            if not chapter_text:
+                logger.warning(f"乌鲁鲁星: 无法获取章节文本 book={book_id} ch={chapter_index}")
+                return
+
+            # get book title and chapter title
+            books = self.book_manager.list_books()
+            book = next((b for b in books if b["id"] == book_id), None)
+            book_title = book.get("title", "未知") if book else "未知"
+
+            chapters = self.book_manager.get_chapters(book_id)
+            chapter_title = ""
+            if chapters and 0 <= chapter_index < len(chapters):
+                chapter_title = chapters[chapter_index].get("title", f"第{chapter_index + 1}章")
+
+            # get highlights for this chapter
+            all_highlights = self.book_manager.get_highlights(book_id)
+            chapter_highlights = [
+                h for h in all_highlights
+                if h.get("chapter_index") == chapter_index
+            ]
+            highlights_text = ""
+            if chapter_highlights:
+                hl_lines = [f"「{h.get('text', '')}」" for h in chapter_highlights[:10]]
+                highlights_text = "\n她的划线：\n" + "\n".join(hl_lines)
+
+            # truncate chapter text for prompt
+            snippet = chapter_text[:1500] if len(chapter_text) > 1500 else chapter_text
+
+            # build LLM prompt
+            prompt = (
+                f"你刚和她一起读完了《{book_title}》的{chapter_title}。"
+                f"以下是章节内容、她的划线和你们的互动。"
+                f"请用150-200字，以你的视角总结这章的故事和你们的互动记忆。\n\n"
+                f"[章节内容]\n{snippet}\n[/章节内容]"
+                f"{highlights_text}"
+            )
+
+            # call LLM
+            provider = self.context.get_using_provider()
+            if not provider:
+                logger.warning("乌鲁鲁星: 无 LLM provider，跳过章节总结生成")
+                return
+
+            resp = await provider.text_chat(prompt=prompt, system_prompt="")
+            summary = resp.completion_text
+            if not summary:
+                return
+
+            # save memory
+            if book_id not in self.memories:
+                self.memories[book_id] = {}
+            self.memories[book_id][str(chapter_index)] = summary
+            self._save_memories()
+
+            logger.info(
+                f"乌鲁鲁星: 已生成章节记忆 book={book_id} ch={chapter_index} "
+                f"len={len(summary)}"
+            )
+
+        except Exception as e:
+            logger.error(f"乌鲁鲁星: 生成章节总结失败: {e}", exc_info=True)
 
     def start(self):
         """Start the background reading task."""
@@ -189,8 +286,8 @@ class BotReader:
 
     async def _reading_loop(self):
         """Background loop: periodically advance bot's reading progress."""
-        # wait a bit after startup before first read
-        await asyncio.sleep(60)
+        # wait longer after startup before first read (10 minutes)
+        await asyncio.sleep(600)
 
         while self._running:
             try:
@@ -208,50 +305,64 @@ class BotReader:
             await asyncio.sleep(wait_minutes * 60)
 
     async def _do_reading_tick(self):
-        """Advance bot's reading progress on one book and maybe send a message."""
+        """Advance bot's reading progress on one book and maybe send a message.
+
+        Only advances progress if memory generation succeeds.
+        """
         books = self.book_manager.list_books()
         if not books:
             return
 
-        # pick a book to read (prefer ones not finished yet)
-        unfinished = []
+        # pick a book to read (prefer ones with chapters not yet memorized)
+        candidates = []
         for book in books:
-            prog = self.progress.get(book["id"])
-            if not prog:
-                unfinished.append(book)
-            elif prog.get("current_chapter", 0) < prog.get("total_chapters", 1) - 1:
-                unfinished.append(book)
+            chapters = self.book_manager.get_chapters(book["id"])
+            if not chapters:
+                continue
+            completed = self._get_completed_chapters(book["id"])
+            if len(completed) < len(chapters):
+                candidates.append(book)
 
-        if not unfinished:
-            # all books finished, maybe re-read a random one
+        if not candidates:
             return
 
-        book = random.choice(unfinished)
+        book = random.choice(candidates)
         book_id = book["id"]
 
-        # get chapter info
+        # find the next chapter to read (first one without memory)
         chapters = self.book_manager.get_chapters(book_id)
         if not chapters:
             return
 
-        # initialize or advance progress
-        if book_id not in self.progress:
-            self.progress[book_id] = {
-                "current_chapter": 0,
-                "total_chapters": len(chapters),
-                "book_title": book.get("title", ""),
-                "last_read_at": time.time(),
-            }
-        else:
-            # advance 1-2 chapters
-            advance = random.randint(1, 2)
-            current = self.progress[book_id]["current_chapter"]
-            new_chapter = min(current + advance, len(chapters) - 1)
-            self.progress[book_id]["current_chapter"] = new_chapter
-            self.progress[book_id]["last_read_at"] = time.time()
-            self.progress[book_id]["total_chapters"] = len(chapters)
+        completed = self._get_completed_chapters(book_id)
+        next_chapter = None
+        for i in range(len(chapters)):
+            if i not in completed:
+                next_chapter = i
+                break
 
+        if next_chapter is None:
+            return
+
+        # generate memory for this chapter (this is the actual "reading")
+        await self.generate_chapter_summary(book_id, next_chapter)
+
+        # verify memory was actually created before considering it progress
+        if not self.get_chapter_memory(book_id, next_chapter):
+            logger.warning(f"乌鲁鲁星: 自动阅读生成记忆失败 book={book_id} ch={next_chapter}")
+            return
+
+        # update progress dict for compatibility
+        self.progress[book_id] = {
+            "current_chapter": next_chapter,
+            "total_chapters": len(chapters),
+            "book_title": book.get("title", ""),
+            "last_read_at": time.time(),
+            "current_offset": 0,
+        }
         self._save_progress()
+
+        logger.info(f"乌鲁鲁星: 自动阅读完成 《{book.get('title', '')}》第{next_chapter + 1}章")
 
         # maybe send a proactive message based on configured probability
         bot_config = self.config.get("bot_reading", {})
