@@ -298,7 +298,7 @@ Send a chat message and get bot reply.
 
 ### POST /api/chapter/complete
 
-Mark a chapter as complete (打卡). Advances user progress and triggers bot memory generation.
+Mark a chapter as complete (打卡). Records checkin and triggers bot memory generation.
 
 **Request Body:**
 ```json
@@ -308,8 +308,9 @@ Mark a chapter as complete (打卡). Advances user progress and triggers bot mem
 **Response:** `{"success": true, "message": "打卡成功"}`
 
 **Side Effects:**
-- Records chapter in user's checked_chapters_list
-- Triggers async LLM call to generate chapter memory summary
+- Records chapter in user's `checked_chapters_list` (duplicate checkins for same chapter are ignored)
+- Triggers async LLM call to generate chapter memory summary (skipped if memory already exists)
+- Does NOT directly affect user progress percentage (progress is high-water-mark based on chapters opened)
 
 ---
 
@@ -542,7 +543,9 @@ Get all footprint items (photos, bot notes).
       "filename": "abc123def456.jpg",
       "caption": "",
       "created_at": 1700000000,
-      "rotation": -3
+      "rotation": -3,
+      "pos_x": 45.2,
+      "pos_y": 30.5
     },
     {
       "id": "bot_1700000000_123",
@@ -573,7 +576,9 @@ Upload a photo to the footprints board.
     "filename": "abc123def456.jpg",
     "caption": "",
     "created_at": 1700000000,
-    "rotation": 2
+    "rotation": 2,
+    "pos_x": 45.2,
+    "pos_y": 30.5
   }
 }
 ```
@@ -583,6 +588,20 @@ Upload a photo to the footprints board.
 ### DELETE /api/footprints/{item_id}
 
 Delete a photo from the footprints board (removes files and metadata).
+
+**Response:** `{"success": true}`
+
+### POST /api/footprints/{item_id}/position
+
+Update a photo's position after drag.
+
+**Request Body:**
+```json
+{"pos_x": 45.2, "pos_y": 30.5}
+```
+
+- `pos_x` (required): Horizontal position as percentage (0-95), clamped
+- `pos_y` (required): Vertical position as percentage (0-95), clamped
 
 **Response:** `{"success": true}`
 
@@ -604,7 +623,9 @@ Post a user sticky note. Bot will reply asynchronously (3-8s delay).
     "content": "note text",
     "created_at": 1700000000,
     "reply": null,
-    "reply_at": null
+    "reply_at": null,
+    "pos_x": 45.2,
+    "pos_y": 30.5
   }
 }
 ```
@@ -623,7 +644,9 @@ Get all sticky notes with bot replies.
       "content": "user note text",
       "created_at": 1700000000,
       "reply": "bot reply text",
-      "reply_at": 1700000005
+      "reply_at": 1700000005,
+      "pos_x": 45.2,
+      "pos_y": 30.5
     }
   ]
 }
@@ -632,6 +655,20 @@ Get all sticky notes with bot replies.
 ### DELETE /api/footprints/notes/{note_id}
 
 Delete a sticky note and its bot reply.
+
+**Response:** `{"success": true}`
+
+### POST /api/footprints/notes/{note_id}/position
+
+Update a sticky note's position after drag.
+
+**Request Body:**
+```json
+{"pos_x": 45.2, "pos_y": 30.5}
+```
+
+- `pos_x` (required): Horizontal position as percentage (0-95), clamped
+- `pos_y` (required): Vertical position as percentage (0-95), clamped
 
 **Response:** `{"success": true}`
 
@@ -748,7 +785,7 @@ Delete a pet (also removes photo file if exists).
 
 ### POST /api/pets/{pet_id}/feed
 
-Feed a pet (restores hunger to 100).
+Feed a pet (increases hunger by 30, capped at 100).
 
 **Response:**
 ```json
@@ -760,6 +797,8 @@ Feed a pet (restores hunger to 100).
 ```
 
 The `comment` field contains a random easter egg comment from the bot character.
+
+**Note:** Feeding adds +30 to hunger (not instant full). Multiple feedings may be needed to fully restore a starving pet.
 
 ### POST /api/pets/{pet_id}/pet
 

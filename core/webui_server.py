@@ -287,12 +287,13 @@ class WebUIServer:
             chapter_index = data.get("chapter_index")
             text = data.get("text", "")
             context_text = data.get("context", "")
+            chapter_title = data.get("chapter_title", "")
 
             if not all([session_token, book_id, text]):
                 raise HTTPException(400, detail="missing required fields")
 
             highlight = self.book_manager.add_highlight(
-                book_id, chapter_index, text, context_text
+                book_id, chapter_index, text, context_text, chapter_title
             )
 
             # record highlight as a system note in chat history
@@ -733,6 +734,18 @@ class WebUIServer:
             """Get all footprint items (photos, user notes, bot notes)."""
             profile = self._load_profile()
             items = profile.get("footprints", [])
+            # Assign random positions to legacy photos missing pos_x/pos_y
+            changed = False
+            for item in items:
+                if item.get("type") == "photo" and (
+                    "pos_x" not in item or "pos_y" not in item
+                ):
+                    item["pos_x"] = round(random.uniform(5, 75), 1)
+                    item["pos_y"] = round(random.uniform(5, 75), 1)
+                    changed = True
+            if changed:
+                profile["footprints"] = items
+                self._save_profile(profile)
             # sort by created_at descending
             items.sort(key=lambda x: x.get("created_at", 0), reverse=True)
             return {"success": True, "items": items}
@@ -793,6 +806,27 @@ class WebUIServer:
 
             # store metadata in profile
             rotation = random.randint(-6, 6)
+
+            # Generate random position (percentage) avoiding overlap
+            profile = self._load_profile()
+            existing_photos = [
+                fp for fp in profile.get("footprints", []) if fp.get("type") == "photo"
+            ]
+            pos_x = random.uniform(5, 75)
+            pos_y = random.uniform(5, 75)
+            for _ in range(10):
+                overlap = False
+                for ep in existing_photos:
+                    ex = ep.get("pos_x", 50)
+                    ey = ep.get("pos_y", 50)
+                    if abs(ex - pos_x) < 15 and abs(ey - pos_y) < 15:
+                        overlap = True
+                        break
+                if not overlap:
+                    break
+                pos_x = random.uniform(5, 75)
+                pos_y = random.uniform(5, 75)
+
             footprint_item = {
                 "id": item_id,
                 "type": "photo",
@@ -800,6 +834,8 @@ class WebUIServer:
                 "caption": "",
                 "created_at": int(time.time()),
                 "rotation": rotation,
+                "pos_x": round(pos_x, 1),
+                "pos_y": round(pos_y, 1),
             }
 
             profile = self._load_profile()
@@ -840,6 +876,35 @@ class WebUIServer:
             profile["footprints"] = footprints
             self._save_profile(profile)
 
+            return {"success": True}
+
+        @app.post("/api/footprints/{item_id}/position")
+        async def api_update_footprint_position(item_id: str, request: Request):
+            """Update a photo's position after drag."""
+            data = await request.json()
+            pos_x = data.get("pos_x")
+            pos_y = data.get("pos_y")
+            if pos_x is None or pos_y is None:
+                raise HTTPException(400, detail="pos_x and pos_y are required")
+
+            # Clamp values to valid range
+            pos_x = max(0, min(95, float(pos_x)))
+            pos_y = max(0, min(95, float(pos_y)))
+
+            profile = self._load_profile()
+            footprints = profile.get("footprints", [])
+            found = False
+            for fp in footprints:
+                if fp.get("id") == item_id:
+                    fp["pos_x"] = round(pos_x, 1)
+                    fp["pos_y"] = round(pos_y, 1)
+                    found = True
+                    break
+            if not found:
+                raise HTTPException(404, detail="footprint not found")
+
+            profile["footprints"] = footprints
+            self._save_profile(profile)
             return {"success": True}
 
         @app.post("/api/footprints/note")
@@ -1097,7 +1162,7 @@ class WebUIServer:
 
         @app.post("/api/pets/{pet_id}/feed")
         async def api_feed_pet(pet_id: str):
-            """Feed a pet, restoring hunger to 100."""
+            """Feed a pet, increasing hunger by 30 (capped at 100)."""
             if not self.plugin or not getattr(self.plugin, "pet_house_manager", None):
                 raise HTTPException(500, detail="pet house not available")
 
@@ -1243,6 +1308,11 @@ class WebUIServer:
             if not provider:
                 return
 
+            # get persona for consistent character voice
+            persona = ""
+            if self.bot_reader:
+                persona = await self.bot_reader._get_persona_prompt()
+
             prompt = (
                 f"她在便签板上给你留了一张纸条：「{user_content}」\n"
                 "请用一两句话回复她，写在另一张便签纸上。"
@@ -1250,7 +1320,7 @@ class WebUIServer:
                 "直接输出回复内容，不要加引号或前缀。不要加句号。"
             )
 
-            resp = await provider.text_chat(prompt=prompt, system_prompt="")
+            resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             reply_text = (resp.completion_text or "").strip()
             if not reply_text or len(reply_text) > 80:
                 return
@@ -1284,6 +1354,11 @@ class WebUIServer:
             if not provider:
                 return
 
+            # get persona for consistent character voice
+            persona = ""
+            if self.bot_reader:
+                persona = await self.bot_reader._get_persona_prompt()
+
             prompt = (
                 f"你之前发了一条动态：「{moment_content}」\n"
                 f"她回复了你：「{user_reply}」\n"
@@ -1291,7 +1366,7 @@ class WebUIServer:
                 "直接输出回复内容。"
             )
 
-            resp = await provider.text_chat(prompt=prompt, system_prompt="")
+            resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             reply_text = (resp.completion_text or "").strip()
             if not reply_text or len(reply_text) > 60:
                 return

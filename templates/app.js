@@ -96,7 +96,7 @@ async function syncHighlightsFromServer() {
         serverAll[bookId] = res.highlights.map(function (h) {
           return {
             chapter: h.chapter_index,
-            chapterTitle: h.chapterTitle || ("第" + ((h.chapter_index || 0) + 1) + "章"),
+            chapterTitle: h.chapter_title || h.chapterTitle || ("第" + ((h.chapter_index || 0) + 1) + "章"),
             text: h.text,
             context: h.context || "",
             time: h.created_at ? h.created_at * 1000 : Date.now(),
@@ -1164,6 +1164,79 @@ function bindReaderEvents() {
 
   initDraggableFab();
   initDraggableChatPanel();
+
+  // === Selection context menu (floating highlight button) ===
+  var selMenu = document.createElement("div");
+  selMenu.id = "selection-context-menu";
+  selMenu.className = "selection-context-menu";
+  selMenu.innerHTML = '<button class="sel-menu-btn" id="sel-menu-highlight">✦ 划线</button>';
+  selMenu.style.display = "none";
+  document.body.appendChild(selMenu);
+
+  selMenu.querySelector("#sel-menu-highlight").addEventListener("click", function (e) {
+    e.stopPropagation();
+    doHighlight();
+    selMenu.style.display = "none";
+  });
+
+  // Show menu on text selection (works for both mouse and touch)
+  var readerBodyEl = document.getElementById("reader-body");
+
+  function showSelectionMenu() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+      selMenu.style.display = "none";
+      return;
+    }
+    // Only show if selection is inside reader body
+    var anchor = sel.anchorNode;
+    if (!anchor || !readerBodyEl.contains(anchor)) {
+      selMenu.style.display = "none";
+      return;
+    }
+    var range = sel.getRangeAt(0);
+    var rect = range.getBoundingClientRect();
+    // Position above the selection (fixed positioning relative to viewport)
+    selMenu.style.display = "block";
+    var menuRect = selMenu.getBoundingClientRect();
+    var top = rect.top - menuRect.height - 8;
+    if (top < 10) top = rect.bottom + 8; // below if no room above
+    var left = Math.max(10, rect.left + rect.width / 2 - menuRect.width / 2);
+    selMenu.style.left = left + "px";
+    selMenu.style.top = top + "px";
+  }
+
+  // Desktop: show on mouseup after selection (use document level, filter by reader-body)
+  document.addEventListener("mouseup", function () {
+    if (!document.getElementById("reader-view").classList.contains("open")) return;
+    setTimeout(showSelectionMenu, 50);
+  });
+
+  // Desktop: right-click with selection
+  document.addEventListener("contextmenu", function (e) {
+    if (!document.getElementById("reader-view").classList.contains("open")) return;
+    var sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) {
+      var anchor = sel.anchorNode;
+      if (anchor && document.getElementById("reader-body").contains(anchor)) {
+        e.preventDefault();
+        showSelectionMenu();
+      }
+    }
+  });
+
+  // Mobile: show on selectionchange
+  document.addEventListener("selectionchange", function () {
+    if (!document.getElementById("reader-view").classList.contains("open")) return;
+    setTimeout(showSelectionMenu, 100);
+  });
+
+  // Hide menu when clicking elsewhere
+  document.addEventListener("mousedown", function (e) {
+    if (!selMenu.contains(e.target)) {
+      selMenu.style.display = "none";
+    }
+  });
 }
 
 // ==================== Bookmark ====================
@@ -1484,6 +1557,9 @@ function doHighlight() {
     chapter_index: readerState.currentChapter,
     text: text,
     context: contextText,
+    chapter_title: readerState.chapters[readerState.currentChapter]
+      ? readerState.chapters[readerState.currentChapter].title
+      : "",
   }).catch(function () {});
 
   sel.removeAllRanges();
@@ -1691,12 +1767,15 @@ function formatHighlightWithContext(h) {
   return result;
 }
 
-function formatHighlightText(text) {
-  // kept for backward compat but not used anymore
-  return '<span class="note-highlight-text">' + escapeHtml(text) + '</span>';
-}
+
 
 // ==================== Footprints Board ====================
+
+var fpPhotosState = {
+  photos: [],
+  currentPage: 0,
+  perPage: 6
+};
 
 async function loadFootprints() {
   var board = document.getElementById("footprints-board");
@@ -1709,32 +1788,227 @@ async function loadFootprints() {
     var items = (res.items || []).filter(function(i) { return i.type === "photo"; });
     if (items.length === 0) {
       board.innerHTML = '<div class="footprints-empty">还没有照片，贴一张开始吧 ✦</div>';
+      renderFootprintsPagination();
       return;
     }
 
-    board.innerHTML = "";
-    items.forEach(function(item) {
-      var div = document.createElement("div");
-      div.className = "footprint-item";
-      div.style.transform = "rotate(" + (item.rotation || 0) + "deg)";
-      div.innerHTML = '<div class="footprint-pin"></div>' +
-        '<div class="footprint-photo">' +
-        '<img src="/assets/footprints/thumbs/' + item.filename + '" alt="" loading="lazy" />' +
-        (item.caption ? '<div class="footprint-caption">' + escapeHtml(item.caption) + '</div>' : '') +
-        '</div>' +
-        '<button class="footprint-delete" data-id="' + item.id + '">×</button>';
-      div.querySelector(".footprint-photo").addEventListener("click", function() {
-        openLightbox("/assets/footprints/originals/" + item.filename);
-      });
-      div.querySelector(".footprint-delete").addEventListener("click", function(e) {
-        e.stopPropagation();
-        if (confirm("删除这张照片？")) { deleteFootprint(item.id); }
-      });
-      board.appendChild(div);
-    });
+    fpPhotosState.photos = items;
+    var totalPages = Math.ceil(items.length / fpPhotosState.perPage);
+    if (fpPhotosState.currentPage >= totalPages) {
+      fpPhotosState.currentPage = Math.max(0, totalPages - 1);
+    }
+    renderFootprintsPage();
   } catch(e) {
     board.innerHTML = '<div class="footprints-empty">还没有照片，贴一张开始吧 ✦</div>';
+    renderFootprintsPagination();
   }
+}
+
+function renderFootprintsPage() {
+  var board = document.getElementById("footprints-board");
+  if (!board) return;
+
+  var photos = fpPhotosState.photos;
+  var start = fpPhotosState.currentPage * fpPhotosState.perPage;
+  var pagePhotos = photos.slice(start, start + fpPhotosState.perPage);
+
+  board.innerHTML = "";
+
+  pagePhotos.forEach(function(item) {
+    var div = document.createElement("div");
+    div.className = "footprint-item";
+    div.dataset.itemId = item.id;
+
+    // Position from server data
+    var posX = item.pos_x !== undefined ? item.pos_x : Math.random() * 70 + 5;
+    var posY = item.pos_y !== undefined ? item.pos_y : Math.random() * 70 + 5;
+    div.style.left = posX + "%";
+    div.style.top = posY + "%";
+
+    // Random rotation
+    var rotation = item.rotation || 0;
+    div.style.transform = "rotate(" + rotation + "deg)";
+    div.dataset.rotation = rotation;
+
+    div.innerHTML = '<div class="footprint-pin"></div>' +
+      '<div class="footprint-photo">' +
+      '<img src="/assets/footprints/thumbs/' + item.filename + '" alt="" loading="lazy" />' +
+      (item.caption ? '<div class="footprint-caption">' + escapeHtml(item.caption) + '</div>' : '') +
+      '</div>' +
+      '<button class="footprint-delete" data-id="' + item.id + '">×</button>';
+
+    // Delete button handler
+    div.querySelector(".footprint-delete").addEventListener("click", function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (confirm("删除这张照片？")) { deleteFootprint(item.id); }
+    });
+
+    // Drag handling (same pattern as sticky notes)
+    initPhotoDrag(div, item);
+
+    board.appendChild(div);
+  });
+
+  renderFootprintsPagination();
+}
+
+function renderFootprintsPagination() {
+  var totalPages = Math.ceil(fpPhotosState.photos.length / fpPhotosState.perPage);
+  var container = document.getElementById("footprints-pagination");
+
+  // Create pagination container if it doesn't exist
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "footprints-pagination";
+    container.className = "footprints-pagination";
+    var board = document.getElementById("footprints-board");
+    if (board) board.parentNode.insertBefore(container, board.nextSibling);
+  }
+
+  if (totalPages <= 1) {
+    container.style.display = "none";
+    return;
+  }
+
+  container.style.display = "flex";
+  container.innerHTML = "";
+
+  // prev button
+  var prevBtn = document.createElement("button");
+  prevBtn.className = "shelf-nav-btn" + (fpPhotosState.currentPage === 0 ? " hidden" : "");
+  prevBtn.textContent = "\u2039";
+  prevBtn.addEventListener("click", function() {
+    if (fpPhotosState.currentPage > 0) {
+      fpPhotosState.currentPage--;
+      renderFootprintsPage();
+    }
+  });
+  container.appendChild(prevBtn);
+
+  // dots
+  var dotsDiv = document.createElement("div");
+  dotsDiv.className = "shelf-pagination";
+  for (var i = 0; i < totalPages; i++) {
+    var dot = document.createElement("button");
+    dot.className = "page-dot" + (i === fpPhotosState.currentPage ? " active" : "");
+    dot.dataset.page = i;
+    dot.addEventListener("click", function() {
+      fpPhotosState.currentPage = parseInt(this.dataset.page);
+      renderFootprintsPage();
+    });
+    dotsDiv.appendChild(dot);
+  }
+  container.appendChild(dotsDiv);
+
+  // next button
+  var nextBtn = document.createElement("button");
+  nextBtn.className = "shelf-nav-btn" + (fpPhotosState.currentPage >= totalPages - 1 ? " hidden" : "");
+  nextBtn.textContent = "\u203a";
+  nextBtn.addEventListener("click", function() {
+    if (fpPhotosState.currentPage < totalPages - 1) {
+      fpPhotosState.currentPage++;
+      renderFootprintsPage();
+    }
+  });
+  container.appendChild(nextBtn);
+}
+
+function initPhotoDrag(div, item) {
+  var startX, startY, origLeft, origTop, hasMoved, pointerId;
+  var DRAG_THRESHOLD = 5;
+
+  function onPointerDown(e) {
+    // Don't start drag on delete button
+    if (e.target.closest(".footprint-delete")) return;
+
+    e.preventDefault();
+
+    startX = e.clientX;
+    startY = e.clientY;
+    hasMoved = false;
+    pointerId = e.pointerId;
+
+    var board = document.getElementById("footprints-board");
+    var rect = board.getBoundingClientRect();
+    var divRect = div.getBoundingClientRect();
+    origLeft = divRect.left - rect.left;
+    origTop = divRect.top - rect.top;
+
+    div.setPointerCapture(e.pointerId);
+    div.addEventListener("pointermove", onPointerMove);
+    div.addEventListener("pointerup", onPointerUp);
+    div.addEventListener("pointercancel", onPointerUp);
+  }
+
+  function onPointerMove(e) {
+    var dx = e.clientX - startX;
+    var dy = e.clientY - startY;
+
+    if (!hasMoved && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
+      return;
+    }
+
+    if (!hasMoved) {
+      hasMoved = true;
+      div.classList.add("dragging");
+      // Remove rotation during drag for cleaner movement
+      div.style.transform = "rotate(0deg)";
+    }
+
+    var board = document.getElementById("footprints-board");
+    var rect = board.getBoundingClientRect();
+    var newLeft = origLeft + dx;
+    var newTop = origTop + dy;
+
+    // Clamp within container
+    newLeft = Math.max(0, Math.min(rect.width - 40, newLeft));
+    newTop = Math.max(0, Math.min(rect.height - 40, newTop));
+
+    // Convert to percentage
+    var pctX = (newLeft / rect.width) * 100;
+    var pctY = (newTop / rect.height) * 100;
+
+    div.style.left = pctX + "%";
+    div.style.top = pctY + "%";
+  }
+
+  function onPointerUp(e) {
+    div.removeEventListener("pointermove", onPointerMove);
+    div.removeEventListener("pointerup", onPointerUp);
+    div.removeEventListener("pointercancel", onPointerUp);
+
+    try { div.releasePointerCapture(pointerId); } catch(ex) {}
+
+    if (hasMoved) {
+      div.classList.remove("dragging");
+      // Restore rotation
+      var rotation = div.dataset.rotation || "0";
+      div.style.transform = "rotate(" + rotation + "deg)";
+
+      // Save new position to server
+      var itemId = div.dataset.itemId;
+      var board = document.getElementById("footprints-board");
+      var rect = board.getBoundingClientRect();
+      var divRect = div.getBoundingClientRect();
+      var pctX = ((divRect.left - rect.left) / rect.width) * 100;
+      var pctY = ((divRect.top - rect.top) / rect.height) * 100;
+
+      // Clamp
+      pctX = Math.max(0, Math.min(95, pctX));
+      pctY = Math.max(0, Math.min(95, pctY));
+
+      apiPost("footprints/" + itemId + "/position", {
+        pos_x: Math.round(pctX * 10) / 10,
+        pos_y: Math.round(pctY * 10) / 10
+      }).catch(function() {});
+    } else {
+      // No drag happened — treat as click → open lightbox
+      openLightbox("/assets/footprints/originals/" + item.filename);
+    }
+  }
+
+  div.addEventListener("pointerdown", onPointerDown);
 }
 
 // === Sticky Notes (便签板) ===
@@ -2825,6 +3099,10 @@ function formatMemoryTime(timestamp) {
   var now = new Date();
   var diff = now - d;
 
+  if (diff < 0) {
+    return "刚刚";
+  }
+
   if (diff < 3600000) {
     return Math.floor(diff / 60000) + "分钟前";
   } else if (diff < 86400000) {
@@ -2924,8 +3202,16 @@ async function deleteMemoryMessage(sessionId, type, messageId) {
     var res = await fetch(endpoint, { method: "DELETE" });
     var data = await res.json();
     if (data.success) {
-      // remove from DOM
-      var item = event.target.closest(".memory-msg-item");
+      // remove from DOM - find the button that triggered this and get its parent
+      var btns = document.querySelectorAll(".memory-msg-delete");
+      var item = null;
+      for (var i = 0; i < btns.length; i++) {
+        if (btns[i].getAttribute("onclick") &&
+            btns[i].getAttribute("onclick").indexOf(messageId) !== -1) {
+          item = btns[i].closest(".memory-msg-item");
+          break;
+        }
+      }
       if (item) {
         item.style.opacity = "0";
         item.style.transform = "translateX(20px)";

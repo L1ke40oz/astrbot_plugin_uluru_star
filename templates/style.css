@@ -2472,31 +2472,41 @@ mark.user-highlight {
 }
 
 .footprints-board {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: center;
+  position: relative;
+  height: 65vh;
+  min-height: 400px;
+  overflow: hidden;
   padding: 10px 0;
-  min-height: 200px;
 }
 
 .footprints-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
-  padding: 60px 0;
   width: 100%;
 }
 
 .footprint-item {
-  position: relative;
-  transition: transform 0.2s, box-shadow 0.2s;
-  cursor: pointer;
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: box-shadow 0.2s;
 }
 
 .footprint-item:hover {
-  transform: scale(1.05) !important;
   z-index: 10;
+}
+
+.footprint-item.dragging {
+  cursor: grabbing;
+  z-index: 100;
+  opacity: 0.9;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
 }
 
 .footprint-photo {
@@ -2505,6 +2515,7 @@ mark.user-highlight {
   padding: 6px 6px 20px;
   border-radius: 2px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.08);
+  pointer-events: none;
 }
 
 .footprint-photo img {
@@ -2585,6 +2596,7 @@ mark.user-highlight {
   border-radius: 50%;
   background: var(--primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  pointer-events: none;
 }
 
 .footprint-delete {
@@ -2608,6 +2620,27 @@ mark.user-highlight {
 
 .footprint-item:hover .footprint-delete {
   opacity: 1;
+}
+
+/* Pagination controls for photos */
+.footprints-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.footprints-pagination .shelf-nav-btn {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.footprints-pagination .shelf-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* === Sticky Notes (便签板 - 毛毡板风格) === */
@@ -4684,4 +4717,46 @@ mark.user-highlight {
     width: 48px;
     height: 36px;
   }
+}
+
+
+/* === Selection Context Menu (floating highlight button) === */
+.selection-context-menu {
+  position: fixed;
+  z-index: 700;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--primary-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(100, 70, 140, 0.15);
+  padding: 4px;
+  animation: sel-menu-pop 0.15s ease;
+}
+
+@keyframes sel-menu-pop {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.sel-menu-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.sel-menu-btn:hover {
+  background: var(--primary-hover);
+}
+
+[data-theme="dark"] .selection-context-menu {
+  background: rgba(30, 25, 45, 0.95);
+  border-color: rgba(80, 60, 120, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }

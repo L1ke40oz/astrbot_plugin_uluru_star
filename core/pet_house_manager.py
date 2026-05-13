@@ -637,9 +637,9 @@ class PetHouseManager:
     # --- Actions ---
 
     async def feed_pet(self, pet_id: str) -> tuple[PetData, str]:
-        """Feed a pet, restoring its hunger to 100.
+        """Feed a pet, increasing hunger by 30 (capped at 100).
 
-        Applies decay first, then sets hunger to 100, updates last_updated,
+        Applies decay first, then increases hunger by 30, updates last_updated,
         selects a random easter egg comment, and persists.
 
         Args:
@@ -661,8 +661,8 @@ class PetHouseManager:
             # Apply decay before action
             self._apply_decay(pet, now)
 
-            # Set hunger to full
-            pet.hunger = 100
+            # Increase hunger by 30, capped at 100
+            pet.hunger = min(100, pet.hunger + 30)
 
             # Ensure last_updated is current
             pet.last_updated = now

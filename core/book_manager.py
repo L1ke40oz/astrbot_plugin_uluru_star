@@ -309,7 +309,12 @@ class BookManager:
     # ==================== Highlights ====================
 
     def add_highlight(
-        self, book_id: str, chapter_index: int | None, text: str, context: str = ""
+        self,
+        book_id: str,
+        chapter_index: int | None,
+        text: str,
+        context: str = "",
+        chapter_title: str = "",
     ) -> dict[str, Any]:
         """Save a text highlight."""
         highlight = {
@@ -317,6 +322,7 @@ class BookManager:
             "chapter_index": chapter_index,
             "text": text,
             "context": context,
+            "chapter_title": chapter_title,
             "created_at": time.time(),
         }
         self.library.setdefault("highlights", {}).setdefault(book_id, []).append(

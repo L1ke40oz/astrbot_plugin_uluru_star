@@ -47,6 +47,31 @@ class BotReader:
         self.memories: dict[str, Any] = self._load_memories()
         self.last_user_activity: float = 0  # timestamp of last user message
 
+    async def _get_persona_prompt(self) -> str:
+        """Get the persona prompt for LLM calls (same logic as chat_engine)."""
+        special = self.config.get("special", {})
+        override = special.get("persona_override", "").strip()
+        if override:
+            return override
+
+        persona_id = special.get("persona", "").strip()
+        if persona_id:
+            try:
+                persona = self.context.persona_manager.get_persona_v3_by_id(persona_id)
+                if persona and persona.get("prompt"):
+                    return persona["prompt"]
+            except Exception:
+                pass
+
+        try:
+            persona = await self.context.persona_manager.get_default_persona_v3()
+            if persona and persona.get("prompt"):
+                return persona["prompt"]
+        except Exception:
+            pass
+
+        return ""
+
     def _load_progress(self) -> dict[str, Any]:
         """Load bot's reading progress from disk."""
         if self.progress_file.exists():
@@ -288,13 +313,14 @@ class BotReader:
                 f"{highlights_text}"
             )
 
-            # call LLM
+            # call LLM with persona
             provider = self.context.get_using_provider()
             if not provider:
                 logger.warning("乌鲁鲁星: 无 LLM provider，跳过章节总结生成")
                 return
 
-            resp = await provider.text_chat(prompt=prompt, system_prompt="")
+            persona = await self._get_persona_prompt()
+            resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             summary = resp.completion_text
             if not summary:
                 return
@@ -465,7 +491,8 @@ class BotReader:
                 f"不要太长，一两句话就好，像是随手发的消息。不要提到'章节'、'内容'这种词。"
             )
 
-            resp = await provider.text_chat(prompt=prompt, system_prompt="")
+            persona = await self._get_persona_prompt()
+            resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             message_text = resp.completion_text
 
             if not message_text:
@@ -475,13 +502,36 @@ class BotReader:
             logger.error(f"乌鲁鲁星: 生成阅读消息失败: {e}")
             return
 
-        # send the message
+        # send the message (supports segmented sending via message_separator)
         try:
-            chain = MessageChain([Plain(text=message_text)])
-            await self.context.send_message(self.target_session, chain)
-            logger.info(f"乌鲁鲁星: 已发送阅读主动消息到 {self.target_session}")
+            separator = self.config.get("message_separator", "")
+            segments = [message_text]
 
-            # save to conversation history
+            # split by separator if configured
+            if separator:
+                try:
+                    import re as _re
+
+                    parts = _re.split(separator, message_text)
+                    parts = [p.strip() for p in parts if p.strip()]
+                    if parts:
+                        segments = parts
+                except Exception:
+                    pass  # invalid regex, send as single message
+
+            for i, seg in enumerate(segments):
+                chain = MessageChain([Plain(text=seg)])
+                await self.context.send_message(self.target_session, chain)
+                # brief pause between segments to feel natural
+                if i < len(segments) - 1:
+                    await asyncio.sleep(random.uniform(1.0, 2.5))
+
+            logger.info(
+                f"乌鲁鲁星: 已发送阅读主动消息到 {self.target_session} "
+                f"({len(segments)} 段)"
+            )
+
+            # save to conversation history (full text)
             await self._save_to_conversation_history(message_text)
 
         except Exception as e:
@@ -602,7 +652,8 @@ class BotReader:
                 "直接输出内容，不要加任何前缀或解释。"
             )
 
-            resp = await provider.text_chat(prompt=prompt, system_prompt="")
+            persona = await self._get_persona_prompt()
+            resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             note_text = (resp.completion_text or "").strip()
 
             if not note_text or len(note_text) > 100:
