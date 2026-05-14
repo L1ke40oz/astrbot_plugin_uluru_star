@@ -186,7 +186,7 @@ Delete a book and all associated data.
 
 ### POST /api/interact/highlight
 
-Record a text highlight. Also saves a system note in chat history.
+Record a text highlight. Also saves a system note in chat history. If `auto_reply_on_highlight` is enabled, triggers bot reply via `respond_to_highlight`.
 
 **Request Body:**
 ```json
@@ -206,7 +206,7 @@ Record a text highlight. Also saves a system note in chat history.
 
 ### POST /api/interact/review
 
-Submit a book review. Triggers bot reply via LLM.
+Submit a chapter review. If `auto_reply_on_review` is enabled, triggers bot reply via LLM. Also triggers `generate_chapter_summary(force=True)` to regenerate the chapter memory.
 
 **Request Body:**
 ```json
@@ -222,6 +222,10 @@ Submit a book review. Triggers bot reply via LLM.
 ```json
 {"success": true, "review": {...}, "bot_reply": "Bot's response"}
 ```
+
+**Side Effects:**
+- Bot reply is saved into the review record's `bot_reply` field
+- Chapter summary is regenerated with `force=True` (includes chat history + reviews + highlights)
 
 ### POST /api/interact/note
 
@@ -447,7 +451,20 @@ Delete a highlight by text match.
 
 Get all reviews for a book.
 
-**Response:** `{"success": true, "reviews": [...]}`
+**Response:**
+```json
+{
+  "success": true,
+  "reviews": [
+    {
+      "chapter_index": 5,
+      "content": "review text",
+      "created_at": 1700000000,
+      "bot_reply": "Bot's response to the review"
+    }
+  ]
+}
+```
 
 ### GET /api/data/{book_id}/notes
 
@@ -496,6 +513,8 @@ Get full chat history of a book session.
   }
 }
 ```
+
+Note: Chat messages display using user-configured nicknames (from profile) rather than hardcoded names.
 
 ### DELETE /api/memory/sessions/{book_id}
 
@@ -630,6 +649,8 @@ Post a user sticky note. Bot will reply asynchronously (3-8s delay).
 }
 ```
 
+**Polling:** Frontend polls `GET /api/footprints/notes` every 2s (up to 30s) to check for bot reply.
+
 ### GET /api/footprints/notes
 
 Get all sticky notes with bot replies.
@@ -672,9 +693,13 @@ Update a sticky note's position after drag.
 
 **Response:** `{"success": true}`
 
+---
+
+## Moments (动态)
+
 ### GET /api/footprints/moments
 
-Get bot moments (dynamics/status updates).
+Get all moments (both bot-generated and user-posted).
 
 **Response:**
 ```json
@@ -687,27 +712,101 @@ Get bot moments (dynamics/status updates).
       "content": "Bot's casual thought",
       "created_at": 1700000000,
       "rotation": 2,
-      "liked": false,
+      "bot_liked": false,
+      "user_liked": false,
       "like_count": 0,
       "replies": []
+    },
+    {
+      "id": "user_1700000000_456",
+      "type": "user_note",
+      "content": "User's posted moment",
+      "created_at": 1700000000,
+      "bot_liked": true,
+      "user_liked": false,
+      "like_count": 1,
+      "replies": [
+        {"author": "bot", "content": "Bot's comment", "created_at": 1700000005}
+      ]
     }
   ]
 }
 ```
 
+**Note:** Returns both `bot_note` and `user_note` type moments, sorted by creation time.
+
+### POST /api/footprints/moments
+
+Create a user moment. Bot will auto-like and reply asynchronously.
+
+**Request Body:**
+```json
+{"content": "moment text"}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "moment": {
+    "id": "user_1700000000_456",
+    "type": "user_note",
+    "content": "moment text",
+    "created_at": 1700000000,
+    "bot_liked": false,
+    "user_liked": false,
+    "like_count": 0,
+    "replies": []
+  }
+}
+```
+
+**Side Effects:** Bot auto-likes and generates a reply comment asynchronously.
+
+**Polling:** Frontend polls `GET /api/footprints/moments` every 2s (up to 30s) to check for bot reply.
+
 ### POST /api/footprints/moments/{moment_id}/like
 
-Toggle like on a bot moment.
+Toggle like on a moment. Bot and user likes are tracked independently.
 
-**Response:** `{"success": true}`
+**Request Body (optional):**
+```json
+{"actor": "user"}
+```
+
+If no actor specified, defaults to user. Bot likes are set automatically when reacting to user moments.
+
+**Response:**
+```json
+{"success": true, "user_liked": true, "bot_liked": false}
+```
+
+**Fields:**
+- `user_liked`: Whether the user has liked this moment
+- `bot_liked`: Whether the bot has liked this moment
 
 ### POST /api/footprints/moments/{moment_id}/reply
 
-Reply to a bot moment. Bot will reply back asynchronously.
+Reply to a moment. Bot will reply back asynchronously.
 
-**Request Body:** `{"content": "reply text"}`
+**Request Body:**
+```json
+{
+  "content": "reply text",
+  "reply_to": "沈星回"
+}
+```
+
+- `content` (required): Reply text
+- `reply_to` (optional): Name of the person being replied to. When present, the reply is displayed as "A 回复 B：content"
 
 **Response:** `{"success": true}`
+
+**Side Effects:**
+- Bot generates a reply comment asynchronously
+- Bot reply includes full reply chain as conversation context for LLM
+
+**Polling:** Frontend polls `GET /api/footprints/moments` every 2s (up to 30s) to check for bot reply.
 
 ---
 

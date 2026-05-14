@@ -26,11 +26,13 @@ class BotReader:
         context: Context,
         config: dict[str, Any],
         book_manager: BookManager,
+        session_manager,
         data_dir: Path,
     ):
         self.context = context
         self.config = config
         self.book_manager = book_manager
+        self.session_manager = session_manager
         self.data_dir = data_dir
         self.progress_file = data_dir / "bot_reading_progress.json"
         self.user_progress_file = data_dir / "user_reading_progress.json"
@@ -46,6 +48,9 @@ class BotReader:
         self.target_session: str | None = self._load_target_session()
         self.memories: dict[str, Any] = self._load_memories()
         self.last_user_activity: float = 0  # timestamp of last user message
+
+        # sync progress from memories (rebuild if progress dict is missing entries)
+        self._sync_progress_from_memories()
 
     async def _get_persona_prompt(self) -> str:
         """Get the persona prompt for LLM calls (same logic as chat_engine)."""
@@ -195,6 +200,41 @@ class BotReader:
             encoding="utf-8",
         )
 
+    def _sync_progress_from_memories(self):
+        """Rebuild progress dict from existing memories.
+
+        Ensures that if memories exist but progress dict is empty/stale
+        (e.g., from before this fix was added), the progress is correct.
+        """
+        changed = False
+        for book_id, chapters in self.memories.items():
+            if not chapters:
+                continue
+            # find the highest chapter index with a memory
+            max_chapter = max(int(k) for k in chapters.keys())
+            current_prog = self.progress.get(book_id, {})
+            if max_chapter > current_prog.get("current_chapter", -1):
+                # get book info
+                books = self.book_manager.list_books()
+                book = next((b for b in books if b["id"] == book_id), None)
+                book_title = book.get("title", "") if book else ""
+                total_chapters = 0
+                if book:
+                    ch_list = self.book_manager.get_chapters(book_id)
+                    total_chapters = len(ch_list) if ch_list else 0
+
+                self.progress[book_id] = {
+                    "current_chapter": max_chapter,
+                    "total_chapters": total_chapters,
+                    "book_title": book_title,
+                    "last_read_at": current_prog.get("last_read_at", time.time()),
+                    "current_offset": 0,
+                }
+                changed = True
+
+        if changed:
+            self._save_progress()
+
     def get_chapter_memory(self, book_id: str, chapter_index: int) -> str | None:
         """Get the bot's memory summary for a specific chapter."""
         book_memories = self.memories.get(book_id, {})
@@ -255,17 +295,21 @@ class BotReader:
             return 0
         return min(99, round((len(completed) / total) * 100))
 
-    async def generate_chapter_summary(self, book_id: str, chapter_index: int):
+    async def generate_chapter_summary(
+        self, book_id: str, chapter_index: int, force: bool = False
+    ):
         """Generate a bot memory summary for a completed chapter.
 
-        Combines chapter text, highlights, and chat history to produce
+        Combines chapter text, highlights, chat history, and reviews to produce
         a short summary from the bot's perspective.
-        Skips if a memory already exists for this chapter (no duplicate summaries).
+
+        Args:
+            force: If True, overwrite existing memory (used when review triggers regeneration).
         """
         try:
-            # skip if memory already exists for this chapter
+            # skip if memory already exists (unless force)
             existing = self.get_chapter_memory(book_id, chapter_index)
-            if existing:
+            if existing and not force:
                 logger.debug(
                     f"乌鲁鲁星: 章节记忆已存在，跳过 book={book_id} ch={chapter_index}"
                 )
@@ -301,16 +345,73 @@ class BotReader:
                 hl_lines = [f"「{h.get('text', '')}」" for h in chapter_highlights[:10]]
                 highlights_text = "\n她的划线：\n" + "\n".join(hl_lines)
 
+            # get chat history for this book (relevant messages)
+            chat_text = ""
+            if self.session_manager:
+                try:
+                    history = self.session_manager.get_chat_history(book_id)
+                    # Filter to recent non-silent messages (last 20)
+                    visible = [
+                        m
+                        for m in history
+                        if not (m.get("metadata") or {}).get("silent", False)
+                    ][-20:]
+                    if visible:
+                        chat_lines = []
+                        for m in visible:
+                            role = "她" if m.get("role") == "user" else "你"
+                            content = (m.get("content") or "")[:100]
+                            chat_lines.append(f"{role}：{content}")
+                        chat_text = "\n阅读过程中的对话：\n" + "\n".join(chat_lines)
+                except Exception:
+                    pass
+
+            # get reviews for this chapter
+            reviews_text = ""
+            try:
+                all_reviews = self.book_manager.get_reviews(book_id)
+                chapter_reviews = [
+                    r for r in all_reviews if r.get("chapter_index") == chapter_index
+                ]
+                if chapter_reviews:
+                    rev_lines = [
+                        f"她的书评：「{r.get('content', '')}」"
+                        for r in chapter_reviews[:5]
+                    ]
+                    reviews_text = "\n" + "\n".join(rev_lines)
+            except Exception:
+                pass
+
             # truncate chapter text for prompt
             snippet = chapter_text[:1500] if len(chapter_text) > 1500 else chapter_text
 
             # build LLM prompt
+            default_summary_prompt = (
+                "你刚和她一起读完了《{{book_title}}》的{{chapter_title}}。"
+                "以下是章节内容、她的划线、你们的对话和她的书评。"
+                "请用150-200字，以第一人称总结这章的故事和你们的互动记忆。"
+                "用普通标点符号，不要使用特殊分隔符。"
+            )
+
+            # Check for custom prompt
+            special = self.config.get("special", {})
+            if special.get("custom_prompts_enabled", False):
+                custom = special.get("prompt_chapter_summary", "").strip()
+                if custom:
+                    default_summary_prompt = custom
+
+            instruction = (
+                default_summary_prompt.replace("{{book_title}}", book_title).replace(
+                    "{{chapter_title}}", chapter_title
+                )
+            )
+
             prompt = (
-                f"你刚和她一起读完了《{book_title}》的{chapter_title}。"
-                f"以下是章节内容、她的划线和你们的互动。"
-                f"请用150-200字，以你的视角总结这章的故事和你们的互动记忆。\n\n"
-                f"[章节内容]\n{snippet}\n[/章节内容]"
+                f"{instruction}\n\n"
+                f"章节内容：\n{snippet}\n"
                 f"{highlights_text}"
+                f"{chat_text}"
+                f"{reviews_text}"
             )
 
             # call LLM with persona
@@ -325,15 +426,30 @@ class BotReader:
             if not summary:
                 return
 
-            # save memory
+            # save memory (overwrite if force)
             if book_id not in self.memories:
                 self.memories[book_id] = {}
             self.memories[book_id][str(chapter_index)] = summary
             self._save_memories()
 
+            # update progress dict so reading-progress API reflects the change
+            chapters = self.book_manager.get_chapters(book_id)
+            total_chapters = len(chapters) if chapters else 0
+            current_prog = self.progress.get(book_id, {})
+            # only advance if this chapter is beyond current progress
+            if chapter_index >= current_prog.get("current_chapter", -1):
+                self.progress[book_id] = {
+                    "current_chapter": chapter_index,
+                    "total_chapters": total_chapters,
+                    "book_title": book_title,
+                    "last_read_at": time.time(),
+                    "current_offset": 0,
+                }
+                self._save_progress()
+
             logger.info(
                 f"乌鲁鲁星: 已生成章节记忆 book={book_id} ch={chapter_index} "
-                f"len={len(summary)}"
+                f"len={len(summary)} force={force}"
             )
 
         except Exception as e:
@@ -642,15 +758,25 @@ class BotReader:
 
             context_str = "。".join(context_parts)
 
-            prompt = (
-                f"背景：{context_str}\n\n"
-                "请用一两句话写一条随手记录的动态/碎碎念。"
+            default_dynamics_prompt = (
+                "你正在以自己的身份发一条动态（类似朋友圈）。"
+                "请用一两句话写一条随手记录的碎碎念。"
                 "风格要求：像是随手写在便签纸上的话，简短、自然、有生活气息。"
                 "可以是：对刚读的书的一句感想、此刻的心情、想对她说的一句话、"
                 "一个有趣的念头、或者日常的小事。"
                 "不要太正式，不要用引号，不要超过40个字。"
                 "直接输出内容，不要加任何前缀或解释。"
+                "用第一人称，保持你的性格和说话方式。"
+                "只使用普通标点符号（逗号、句号、问号等），不要使用特殊符号作为分隔。"
             )
+            # Check for custom prompt
+            special = self.config.get("special", {})
+            if special.get("custom_prompts_enabled", False):
+                custom = special.get("prompt_bot_dynamics", "").strip()
+                if custom:
+                    default_dynamics_prompt = custom
+
+            prompt = f"背景：{context_str}\n\n" + default_dynamics_prompt
 
             persona = await self._get_persona_prompt()
             resp = await provider.text_chat(prompt=prompt, system_prompt=persona)

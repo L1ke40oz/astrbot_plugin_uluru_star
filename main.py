@@ -101,6 +101,7 @@ class SharedReadPlugin(Star):
             context=context,
             config=config,
             book_manager=self.book_manager,
+            session_manager=self.session_manager,
             data_dir=self.data_dir,
         )
 
@@ -245,20 +246,82 @@ class SharedReadPlugin(Star):
                 suffix = f" ({'/'.join(progress_parts)})" if progress_parts else ""
                 book_lines.append(f"  《{title}》{suffix}")
 
-            # Step 3: inject minimal hint
+            # Step 3: build footprint context (recent notes and moments)
+            footprint_hint = ""
+            try:
+                profile_path = self.data_dir / "profile.json"
+                if profile_path.exists():
+                    import json
+
+                    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+
+                    # Recent sticky notes (last 3)
+                    fp_notes = profile.get("fp_notes", [])
+                    recent_notes = sorted(
+                        fp_notes, key=lambda x: x.get("created_at", 0), reverse=True
+                    )[:3]
+                    if recent_notes:
+                        note_lines = []
+                        for n in recent_notes:
+                            content = n.get("content", "")[:50]
+                            reply = n.get("reply", "")
+                            line = f"  她写：「{content}」"
+                            if reply:
+                                line += f" → 你回：「{reply[:30]}」"
+                            note_lines.append(line)
+                        footprint_hint += "最近的便签：\n" + "\n".join(note_lines) + "\n"
+
+                    # Recent moments (last 3)
+                    footprints = profile.get("footprints", [])
+                    moments = [
+                        fp
+                        for fp in footprints
+                        if fp.get("type") in ("bot_note", "user_note")
+                    ]
+                    moments.sort(
+                        key=lambda x: x.get("created_at", 0), reverse=True
+                    )
+                    recent_moments = moments[:3]
+                    if recent_moments:
+                        moment_lines = []
+                        for m in recent_moments:
+                            who = "她" if m.get("type") == "user_note" else "你"
+                            content = m.get("content", "")[:50]
+                            moment_lines.append(f"  {who}发了动态：「{content}」")
+                        footprint_hint += (
+                            "最近的动态：\n" + "\n".join(moment_lines) + "\n"
+                        )
+            except Exception:
+                pass
+
+            # Step 4: inject minimal hint
             injection = (
                 f"{BOOKHOUSE_INJECTION_HEADER}\n"
                 f"乌鲁鲁星是你们一起看书的地方。书架上有：\n"
                 + "\n".join(book_lines)
                 + "\n"
-                f"需要回忆书的内容时调用 read_bookhouse_chapter 工具；"
+                + (footprint_hint + "\n" if footprint_hint else "")
+                + f"需要回忆书的内容时调用 read_bookhouse_chapter 工具；"
                 f"需要回忆聊天记录时调用 recall_bookhouse_chat 工具。\n"
                 f"{BOOKHOUSE_INJECTION_FOOTER}"
             )
 
-            req.system_prompt = (req.system_prompt or "") + "\n\n" + injection
+            # Apply injection based on configured method
+            special = self.config.get("special", {})
+            injection_method = special.get("injection_method", "system_prompt")
 
-            logger.debug(f"乌鲁鲁星: 注入书架提示到 LLM 上下文 (书架={len(books)}本)")
+            if injection_method == "user_message_before":
+                req.prompt = injection + "\n\n" + (req.prompt or "")
+            elif injection_method == "user_message_after":
+                req.prompt = (req.prompt or "") + "\n\n" + injection
+            else:
+                # default: system_prompt (invisible)
+                req.system_prompt = (req.system_prompt or "") + "\n\n" + injection
+
+            logger.debug(
+                f"乌鲁鲁星: 注入书架提示到 LLM 上下文 "
+                f"(书架={len(books)}本, 方式={injection_method})"
+            )
 
         except Exception as e:
             logger.error(f"乌鲁鲁星: 注入书架提示失败: {e}", exc_info=True)

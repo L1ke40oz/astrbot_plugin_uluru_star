@@ -316,7 +316,11 @@ class WebUIServer:
             # record highlight as a system note in chat history
             # so the LLM knows what user highlighted when they ask about it
             try:
-                note_content = f"[系统提示] 她划线了：「{text}」"
+                ch_label = f"第{chapter_index + 1}章" if chapter_index is not None else ""
+                if chapter_title:
+                    ch_label = f"{ch_label}·{chapter_title}" if ch_label else chapter_title
+                ch_prefix = f"（{ch_label}）" if ch_label else ""
+                note_content = f"[划线{ch_prefix}] 她划了这句：「{text}」"
                 if context_text:
                     note_content += f"\n（上下文：{context_text[:150]}）"
                 self.session_manager.add_chat_message(
@@ -331,7 +335,18 @@ class WebUIServer:
             except Exception as e:
                 logger.warning(f"乌鲁鲁星: 划线记录到对话历史失败: {e}")
 
-            return {"success": True, "highlight": highlight}
+            # Auto-reply on highlight if enabled
+            bot_reply = None
+            if self.plugin and hasattr(self.plugin, "config"):
+                if self.plugin.config.get("auto_reply_on_highlight", True):
+                    try:
+                        bot_reply = await self.chat_engine.respond_to_highlight(
+                            book_id, book_id, chapter_index, text, context_text
+                        )
+                    except Exception as e:
+                        logger.debug(f"乌鲁鲁星: 划线自动回复失败: {e}")
+
+            return {"success": True, "highlight": highlight, "bot_reply": bot_reply}
 
         @app.post("/api/interact/review")
         async def api_review(request: Request):
@@ -346,9 +361,28 @@ class WebUIServer:
 
             review = self.book_manager.add_review(book_id, chapter_index, content)
 
-            bot_reply = await self.chat_engine.respond_to_review(
-                book_id, book_id, chapter_index, content
-            )
+            bot_reply = None
+            if self.plugin and hasattr(self.plugin, "config"):
+                if self.plugin.config.get("auto_reply_on_review", True):
+                    bot_reply = await self.chat_engine.respond_to_review(
+                        book_id, book_id, chapter_index, content
+                    )
+                    # Save bot reply into the review record
+                    if bot_reply:
+                        reviews = self.book_manager.get_reviews(book_id)
+                        for r in reviews:
+                            if r.get("id") == review.get("id"):
+                                r["bot_reply"] = bot_reply
+                                break
+                        self.book_manager._save_library()
+
+            # Trigger chapter summary regeneration (force overwrite)
+            if self.bot_reader and chapter_index is not None:
+                asyncio.create_task(
+                    self.bot_reader.generate_chapter_summary(
+                        book_id, chapter_index, force=True
+                    )
+                )
 
             return {"success": True, "review": review, "bot_reply": bot_reply}
 
@@ -365,9 +399,12 @@ class WebUIServer:
 
             note = self.book_manager.add_note(book_id, chapter_index, content)
 
-            bot_reply = await self.chat_engine.respond_to_note(
-                book_id, book_id, chapter_index, content
-            )
+            bot_reply = None
+            if self.plugin and hasattr(self.plugin, "config"):
+                if self.plugin.config.get("auto_reply_on_note", True):
+                    bot_reply = await self.chat_engine.respond_to_note(
+                        book_id, book_id, chapter_index, content
+                    )
 
             return {"success": True, "note": note, "bot_reply": bot_reply}
 
@@ -1031,26 +1068,67 @@ class WebUIServer:
 
         @app.get("/api/footprints/moments")
         async def api_get_moments():
-            """Get bot moments (dynamics)."""
+            """Get all moments (bot and user dynamics)."""
             profile = self._load_profile()
             footprints = profile.get("footprints", [])
-            moments = [fp for fp in footprints if fp.get("type") == "bot_note"]
+            moments = [
+                fp
+                for fp in footprints
+                if fp.get("type") in ("bot_note", "user_note")
+            ]
             moments.sort(key=lambda x: x.get("created_at", 0), reverse=True)
             return {"success": True, "moments": moments}
 
+        @app.post("/api/footprints/moments")
+        async def api_post_user_moment(request: Request):
+            """Post a user moment (dynamic). Bot will like and reply asynchronously."""
+            data = await request.json()
+            content = data.get("content", "").strip()
+            if not content:
+                raise HTTPException(400, detail="content is empty")
+
+            moment_item = {
+                "id": f"user_moment_{int(time.time())}_{random.randint(100, 999)}",
+                "type": "user_note",
+                "content": content,
+                "created_at": int(time.time()),
+                "rotation": random.randint(-3, 3),
+                "liked": False,
+                "like_count": 0,
+                "replies": [],
+            }
+
+            profile = self._load_profile()
+            footprints = profile.get("footprints", [])
+            footprints.append(moment_item)
+            profile["footprints"] = footprints
+            self._save_profile(profile)
+
+            # trigger bot like + reply in background
+            if self.bot_reader:
+                asyncio.create_task(
+                    self._bot_react_to_user_moment(moment_item["id"], content)
+                )
+
+            return {"success": True, "item": moment_item}
+
         @app.post("/api/footprints/moments/{moment_id}/like")
         async def api_like_moment(moment_id: str):
-            """Toggle like on a bot moment."""
+            """Toggle user like on a moment. Separate from bot likes."""
             profile = self._load_profile()
             footprints = profile.get("footprints", [])
             for fp in footprints:
                 if fp.get("id") == moment_id:
-                    fp["liked"] = not fp.get("liked", False)
-                    fp["like_count"] = fp.get("like_count", 0) + (
-                        1 if fp["liked"] else -1
+                    # Use user_liked to track user's like independently from bot
+                    fp["user_liked"] = not fp.get("user_liked", False)
+                    # Recalculate total like_count from both sources
+                    bot_liked = fp.get("bot_liked", False)
+                    user_liked = fp.get("user_liked", False)
+                    fp["like_count"] = (1 if bot_liked else 0) + (
+                        1 if user_liked else 0
                     )
-                    if fp["like_count"] < 0:
-                        fp["like_count"] = 0
+                    # Keep legacy "liked" field as "anyone liked" for display
+                    fp["liked"] = bot_liked or user_liked
                     break
             profile["footprints"] = footprints
             self._save_profile(profile)
@@ -1058,35 +1136,74 @@ class WebUIServer:
 
         @app.post("/api/footprints/moments/{moment_id}/reply")
         async def api_reply_moment(moment_id: str, request: Request):
-            """Reply to a bot moment. Bot will reply back asynchronously."""
+            """Reply to a moment or a specific comment. Bot will reply back asynchronously."""
             data = await request.json()
             content = data.get("content", "").strip()
+            reply_to = data.get("reply_to", None)  # name of person being replied to
             if not content:
                 raise HTTPException(400, detail="content is empty")
 
             profile = self._load_profile()
             footprints = profile.get("footprints", [])
+            user_nick = profile.get("user_nickname", "你")
             for fp in footprints:
                 if fp.get("id") == moment_id:
                     if "replies" not in fp:
                         fp["replies"] = []
-                    fp["replies"].append(
-                        {
-                            "role": "user",
-                            "content": content,
-                            "time": int(time.time()),
-                        }
-                    )
+                    reply_item = {
+                        "role": "user",
+                        "content": content,
+                        "time": int(time.time()),
+                    }
+                    if reply_to:
+                        reply_item["reply_to"] = reply_to
+                    fp["replies"].append(reply_item)
                     # trigger bot reply in background
                     if self.bot_reader:
                         asyncio.create_task(
                             self._generate_moment_reply(
-                                moment_id, fp.get("content", ""), content
+                                moment_id,
+                                fp.get("content", ""),
+                                content,
+                                reply_to=reply_to,
+                                user_nick=user_nick,
                             )
                         )
                     break
             profile["footprints"] = footprints
             self._save_profile(profile)
+            return {"success": True}
+
+        @app.delete("/api/footprints/moments/{moment_id}")
+        async def api_delete_moment(moment_id: str):
+            """Delete a bot moment (dynamic)."""
+            profile = self._load_profile()
+            footprints = profile.get("footprints", [])
+            footprints = [fp for fp in footprints if fp.get("id") != moment_id]
+            profile["footprints"] = footprints
+            self._save_profile(profile)
+            return {"success": True}
+
+        # --- Bot Memory Management ---
+
+        @app.delete("/api/bot-memories/{book_id}/{chapter_index}")
+        async def api_delete_bot_memory(book_id: str, chapter_index: str):
+            """Delete a specific bot chapter memory.
+
+            After deletion, the next auto-reading tick will regenerate
+            the memory for this chapter (since it's no longer in the
+            completed chapters list).
+            """
+            if not self.bot_reader:
+                raise HTTPException(500, detail="bot reader not available")
+
+            if book_id in self.bot_reader.memories:
+                if chapter_index in self.bot_reader.memories[book_id]:
+                    del self.bot_reader.memories[book_id][chapter_index]
+                    # remove empty book entry
+                    if not self.bot_reader.memories[book_id]:
+                        del self.bot_reader.memories[book_id]
+                    self.bot_reader._save_memories()
             return {"success": True}
 
         # --- Pet House APIs ---
@@ -1330,12 +1447,15 @@ class WebUIServer:
             if self.bot_reader:
                 persona = await self.bot_reader._get_persona_prompt()
 
-            prompt = (
-                f"她在便签板上给你留了一张纸条：「{user_content}」\n"
+            default_prompt = (
+                "她在便签板上给你留了一张纸条：「{{content}}」\n"
                 "请用一两句话回复她，写在另一张便签纸上。"
                 "风格要求：简短、温柔、自然，像随手写的回复。不要超过30个字。"
-                "直接输出回复内容，不要加引号或前缀。不要加句号。"
+                "直接输出回复内容，不要加引号或前缀。"
+                "只使用普通标点符号，不要使用特殊分隔符号。"
             )
+            prompt_template = self._get_custom_prompt("prompt_note_reply", default_prompt)
+            prompt = prompt_template.replace("{{content}}", user_content)
 
             resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             reply_text = (resp.completion_text or "").strip()
@@ -1358,9 +1478,18 @@ class WebUIServer:
             logger.debug(f"乌鲁鲁星: 便签回复生成失败: {e}")
 
     async def _generate_moment_reply(
-        self, moment_id: str, moment_content: str, user_reply: str
+        self,
+        moment_id: str,
+        moment_content: str,
+        user_reply: str,
+        reply_to: str | None = None,
+        user_nick: str = "她",
     ):
-        """Generate a bot reply to user's comment on a moment (async, delayed)."""
+        """Generate a bot reply to user's comment on a moment (async, delayed).
+
+        Uses the full reply chain as conversation context so the bot can
+        continue the thread naturally across multiple exchanges.
+        """
         try:
             await asyncio.sleep(random.uniform(3, 8))
 
@@ -1376,19 +1505,139 @@ class WebUIServer:
             if self.bot_reader:
                 persona = await self.bot_reader._get_persona_prompt()
 
-            prompt = (
-                f"你之前发了一条动态：「{moment_content}」\n"
-                f"她回复了你：「{user_reply}」\n"
-                "请用一句话回复她的评论。简短、自然、像朋友圈回复。不要超过20个字。"
-                "直接输出回复内容。"
+            # Build conversation context from the full reply chain
+            profile = self._load_profile()
+            footprints = profile.get("footprints", [])
+            moment = None
+            for fp in footprints:
+                if fp.get("id") == moment_id:
+                    moment = fp
+                    break
+
+            if not moment:
+                return
+
+            # Construct the prompt with full reply history
+            replies = moment.get("replies", [])
+            is_user_moment = moment.get("type") == "user_note"
+            bot_nick = profile.get("bot_nickname", "我")
+
+            if is_user_moment:
+                context_lines = [f"她发了一条动态：「{moment_content}」"]
+            else:
+                context_lines = [f"你之前发了一条动态：「{moment_content}」"]
+
+            # Include previous replies as conversation context (skip the latest user reply)
+            history_replies = replies[:-1] if replies else []
+            if history_replies:
+                context_lines.append("之前的评论区对话：")
+                for r in history_replies[-10:]:
+                    role_label = user_nick if r.get("role") == "user" else bot_nick
+                    reply_to_str = r.get("reply_to", "")
+                    if reply_to_str:
+                        context_lines.append(
+                            f"  {role_label} 回复 {reply_to_str}：{r.get('content', '')}"
+                        )
+                    else:
+                        context_lines.append(
+                            f"  {role_label}：{r.get('content', '')}"
+                        )
+
+            if reply_to:
+                context_lines.append(
+                    f"她回复了{reply_to}：「{user_reply}」"
+                )
+            else:
+                context_lines.append(f"她评论了：「{user_reply}」")
+
+            context_lines.append(
+                self._get_custom_prompt(
+                    "prompt_moment_reply",
+                    f"请用一句话回复她的评论（你是{bot_nick}）。简短、自然、像朋友圈回复。不要超过20个字。"
+                    "直接输出回复内容，只使用普通标点符号。",
+                ).replace("{{bot_nick}}", bot_nick)
             )
+
+            prompt = "\n".join(context_lines)
 
             resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
             reply_text = (resp.completion_text or "").strip()
             if not reply_text or len(reply_text) > 60:
                 return
 
-            # save reply
+            # save reply with reply_to indicating it's replying to the user
+            profile = self._load_profile()
+            footprints = profile.get("footprints", [])
+            for fp in footprints:
+                if fp.get("id") == moment_id:
+                    if "replies" not in fp:
+                        fp["replies"] = []
+                    fp["replies"].append(
+                        {
+                            "role": "bot",
+                            "content": reply_text,
+                            "time": int(time.time()),
+                            "reply_to": user_nick,
+                        }
+                    )
+                    break
+            profile["footprints"] = footprints
+            self._save_profile(profile)
+
+            logger.info(f"乌鲁鲁星: 动态回复已生成: {reply_text[:20]}...")
+        except Exception as e:
+            logger.debug(f"乌鲁鲁星: 动态回复生成失败: {e}")
+
+    async def _bot_react_to_user_moment(self, moment_id: str, user_content: str):
+        """Bot reacts to a user's moment: likes it and posts a reply (async, delayed)."""
+        try:
+            # delay to simulate natural reaction time
+            await asyncio.sleep(random.uniform(5, 15))
+
+            if not self.plugin or not hasattr(self.plugin, "context"):
+                return
+
+            # Bot likes the moment
+            profile = self._load_profile()
+            footprints = profile.get("footprints", [])
+            for fp in footprints:
+                if fp.get("id") == moment_id:
+                    fp["bot_liked"] = True
+                    user_liked = fp.get("user_liked", False)
+                    fp["like_count"] = 1 + (1 if user_liked else 0)
+                    fp["liked"] = True
+                    break
+            profile["footprints"] = footprints
+            self._save_profile(profile)
+
+            # Small additional delay before replying
+            await asyncio.sleep(random.uniform(2, 5))
+
+            provider = self.plugin.context.get_using_provider()
+            if not provider:
+                return
+
+            # get persona for consistent character voice
+            persona = ""
+            if self.bot_reader:
+                persona = await self.bot_reader._get_persona_prompt()
+
+            default_react_prompt = (
+                "她发了一条动态：「{{content}}」\n"
+                "请用一句话评论她的动态。简短、自然、像朋友圈评论。不要超过25个字。"
+                "可以是夸赞、调侃、共鸣或好奇。"
+                "直接输出评论内容，只使用普通标点符号。"
+            )
+            prompt = self._get_custom_prompt(
+                "prompt_react_to_user_moment", default_react_prompt
+            ).replace("{{content}}", user_content)
+
+            resp = await provider.text_chat(prompt=prompt, system_prompt=persona)
+            reply_text = (resp.completion_text or "").strip()
+            if not reply_text or len(reply_text) > 80:
+                return
+
+            # save bot reply
             profile = self._load_profile()
             footprints = profile.get("footprints", [])
             for fp in footprints:
@@ -1406,9 +1655,9 @@ class WebUIServer:
             profile["footprints"] = footprints
             self._save_profile(profile)
 
-            logger.info(f"乌鲁鲁星: 动态回复已生成: {reply_text[:20]}...")
+            logger.info(f"乌鲁鲁星: Bot 回应了用户动态: {reply_text[:20]}...")
         except Exception as e:
-            logger.debug(f"乌鲁鲁星: 动态回复生成失败: {e}")
+            logger.debug(f"乌鲁鲁星: Bot 回应用户动态失败: {e}")
 
     def _get_session_preview_by_id(self, book_id: str) -> str:
         """Get a short preview of a book session's content."""
@@ -1447,6 +1696,17 @@ class WebUIServer:
             except (json.JSONDecodeError, OSError):
                 pass
         return {}
+
+    def _get_custom_prompt(self, key: str, default: str) -> str:
+        """Get a custom prompt from config if enabled, otherwise return default."""
+        if not self.plugin or not hasattr(self.plugin, "config"):
+            return default
+        config = self.plugin.config
+        special = config.get("special", {})
+        if not special.get("custom_prompts_enabled", False):
+            return default
+        custom = special.get(key, "").strip()
+        return custom if custom else default
 
     def _save_profile(self, profile: dict):
         """Save profile data to disk."""

@@ -34,13 +34,7 @@
   "auto_reply_on_review": {
     "description": "书评时自动触发回复",
     "type": "bool",
-    "hint": "写书评时是否自动触发回复",
-    "default": true
-  },
-  "auto_reply_on_note": {
-    "description": "纸条时自动触发回复",
-    "type": "bool",
-    "hint": "留纸条时是否自动触发回复",
+    "hint": "写书评时是否自动触发 Bot 回复",
     "default": true
   },
   "reply_to_message_channel": {
@@ -120,7 +114,7 @@
   "special": {
     "description": "高级设置",
     "type": "object",
-    "hint": "人格和模型选择",
+    "hint": "人格、模型选择和自定义提示词",
     "items": {
       "provider": {
         "description": "固定 Provider",
@@ -141,6 +135,65 @@
         "hint": "如果上方的人格选择没有生效，可手动将人格设置复制到此处。留空则使用上方选择的人格。",
         "type": "text",
         "default": ""
+      },
+      "injection_method": {
+        "description": "📍 上下文注入方式",
+        "type": "string",
+        "options": ["system_prompt", "user_message_before", "user_message_after"],
+        "labels": ["系统提示词（不可见）", "用户消息前（可见）", "用户消息后（可见）"],
+        "default": "system_prompt",
+        "hint": "控制书架/便签/动态信息注入到 LLM 上下文的位置。系统提示词：注入不可见的 system prompt；用户消息前/后：注入到用户消息中，会出现在对话历史里。"
+      },
+      "custom_prompts_enabled": {
+        "description": "✏️ 启用自定义提示词",
+        "type": "bool",
+        "hint": "开启后可自定义各场景的提示词。关闭则使用内置默认提示词。",
+        "default": false
+      },
+      "prompt_note_reply": {
+        "description": "便签回复提示词",
+        "type": "text",
+        "hint": "Bot 回复用户便签时的提示词。可用占位符：{{content}} = 用户便签内容",
+        "default": "她在便签板上给你留了一张纸条：「{{content}}」\n请用一两句话回复她，写在另一张便签纸上。\n风格要求：简短、温柔、自然，像随手写的回复。不要超过30个字。\n直接输出回复内容，不要加引号或前缀。\n只使用普通标点符号，不要使用特殊分隔符号。",
+        "condition": {
+          "custom_prompts_enabled": true
+        }
+      },
+      "prompt_moment_reply": {
+        "description": "动态评论回复提示词",
+        "type": "text",
+        "hint": "Bot 回复动态评论时的指令部分。上下文（动态内容、历史评论）会自动拼接在前面。可用占位符：{{bot_nick}} = Bot 昵称",
+        "default": "请用一句话回复她的评论（你是{{bot_nick}}）。简短、自然、像朋友圈回复。不要超过20个字。直接输出回复内容，只使用普通标点符号。",
+        "condition": {
+          "custom_prompts_enabled": true
+        }
+      },
+      "prompt_react_to_user_moment": {
+        "description": "回应用户动态提示词",
+        "type": "text",
+        "hint": "Bot 评论用户发的动态时的提示词。可用占位符：{{content}} = 用户动态内容",
+        "default": "她发了一条动态：「{{content}}」\n请用一句话评论她的动态。简短、自然、像朋友圈评论。不要超过25个字。\n可以是夸赞、调侃、共鸣或好奇。\n直接输出评论内容，只使用普通标点符号。",
+        "condition": {
+          "custom_prompts_enabled": true
+        }
+      },
+      "prompt_bot_dynamics": {
+        "description": "Bot 自动发动态提示词",
+        "type": "text",
+        "hint": "Bot 自动生成动态时的提示词。背景信息（时间、最近阅读等）会自动拼接在前面。",
+        "default": "你正在以自己的身份发一条动态（类似朋友圈）。\n请用一两句话写一条随手记录的碎碎念。\n风格要求：像是随手写在便签纸上的话，简短、自然、有生活气息。\n不要超过50个字。不要用引号包裹。只使用普通标点符号。",
+        "condition": {
+          "custom_prompts_enabled": true
+        }
+      },
+      "prompt_chapter_summary": {
+        "description": "章节总结提示词",
+        "type": "text",
+        "hint": "打卡或书评后生成章节记忆时的提示词。章节内容、划线、对话、书评会自动拼接在后面。可用占位符：{{book_title}} = 书名，{{chapter_title}} = 章节名",
+        "default": "你刚和她一起读完了《{{book_title}}》的{{chapter_title}}。\n以下是章节内容、她的划线、你们的对话和她的书评。\n请用150-200字，以第一人称总结这章的故事和你们的互动记忆。\n用普通标点符号，不要使用特殊分隔符。",
+        "condition": {
+          "custom_prompts_enabled": true
+        }
       }
     }
   }

@@ -1193,6 +1193,133 @@ body {
   color: var(--primary-dark);
 }
 
+/* === Chapter Review Section === */
+.chapter-review-section {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--divider, rgba(180, 160, 210, 0.2));
+}
+
+.chapter-review-header {
+  margin-bottom: 12px;
+}
+
+.chapter-review-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.chapter-review-list {
+  margin-bottom: 16px;
+}
+
+.chapter-review-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--glass-bg, rgba(255,255,255,0.28));
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.45));
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.review-card-user,
+.review-card-bot {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-card-user {
+  border-bottom: 1px dashed var(--divider, rgba(180, 160, 210, 0.2));
+}
+
+.review-card-bot {
+  background: var(--primary-light, rgba(167, 139, 218, 0.08));
+}
+
+.review-card-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.review-card-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.review-card-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.review-card-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.review-bot-pending {
+  color: var(--text-muted);
+  font-style: italic;
+  animation: pulse-opacity 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-opacity {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.chapter-review-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chapter-review-textarea {
+  width: 100%;
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.45));
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: var(--glass-bg, rgba(255,255,255,0.28));
+  color: var(--text-primary);
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.chapter-review-textarea:focus {
+  border-color: var(--primary-border);
+}
+
+.chapter-review-submit {
+  align-self: flex-end;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.chapter-review-submit:hover {
+  opacity: 0.9;
+}
+
+.chapter-review-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* === User Highlight === */
 mark.user-highlight {
   background: var(--highlight-bg);
@@ -2149,6 +2276,64 @@ mark.user-highlight {
   line-height: 1.5;
 }
 
+/* === Settings Feature Rows === */
+.settings-feature-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--glass-border, rgba(255,255,255,0.06));
+}
+
+.settings-feature-row:last-child {
+  border-bottom: none;
+}
+
+.settings-feature-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-feature-label {
+  font-size: 13px;
+  color: var(--text-primary, #e8e0f0);
+  font-weight: 500;
+}
+
+.settings-feature-hint {
+  font-size: 11px;
+  color: var(--text-muted, #b8a8c8);
+  line-height: 1.4;
+}
+
+.settings-action-btn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.1));
+  background: var(--glass-bg, rgba(255,255,255,0.04));
+  color: var(--text-primary, #e8e0f0);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.settings-action-btn:hover {
+  background: var(--accent, #7c5cbf);
+  color: #fff;
+  border-color: var(--accent, #7c5cbf);
+}
+
+.settings-action-btn-danger:hover {
+  background: #c0392b;
+  border-color: #c0392b;
+}
+
 /* === Theme Picker === */
 .theme-picker {
   display: flex;
@@ -2184,6 +2369,28 @@ mark.user-highlight {
   height: 100%;
   border-radius: 50%;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.theme-dot-custom-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: conic-gradient(#ff6b6b, #feca57, #48dbfb, #ff9ff3, #ff6b6b);
+  font-size: 12px;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.custom-color-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* === Particle Settings === */
@@ -2369,10 +2576,26 @@ mark.user-highlight {
   border-top: 1px solid var(--divider);
   cursor: pointer;
   transition: background 0.15s;
+  position: relative;
 }
 
 .bot-memory-chapter:hover {
   background: var(--primary-light);
+}
+
+.bot-memory-delete {
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.bot-memory-chapter:hover .bot-memory-delete {
+  opacity: 0.7;
+}
+
+.bot-memory-delete:hover {
+  opacity: 1 !important;
 }
 
 .bot-memory-ch-label {
@@ -2500,6 +2723,15 @@ mark.user-highlight {
 
 .footprint-item:hover {
   z-index: 10;
+}
+
+.footprint-example {
+  opacity: 0.85;
+}
+
+.footprint-example .footprint-caption {
+  font-style: italic;
+  color: var(--text-muted, #b8a8c8);
 }
 
 .footprint-item.dragging {
@@ -2919,14 +3151,27 @@ mark.user-highlight {
 }
 
 .fp-moment-reply {
-  padding: 4px 0;
+  padding: 4px 6px;
+  margin: 0 -6px;
   line-height: 1.5;
   color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.fp-moment-reply:hover {
+  background: var(--primary-light, rgba(167, 139, 218, 0.1));
 }
 
 .fp-moment-reply .reply-name {
   color: var(--primary-dark);
   font-weight: 500;
+}
+
+.fp-moment-reply .reply-arrow {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .fp-moment-reply-input {
@@ -3284,6 +3529,19 @@ mark.user-highlight {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 14px;
   margin-bottom: 14px;
+  min-height: 160px;
+}
+
+.pet-empty-hint {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  text-align: center;
+  color: var(--text-muted, #b8a8c8);
+  font-size: 13px;
+  opacity: 0.8;
 }
 
 /* === Pet Card === */

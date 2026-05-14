@@ -33,8 +33,8 @@
           <div class="avatars-row">
             <div class="avatar-block">
               <div class="avatar bot-avatar" id="bot-avatar-wrapper">
-                <img id="bot-avatar-img" src="" alt="" />
-                <span class="avatar-fallback" id="bot-avatar-fallback">🐰</span>
+                <img id="bot-avatar-img" class="has-src" src="/static/avatars/default-bot.png" alt="" onerror="this.classList.remove('has-src');this.style.display='none';this.nextElementSibling.style.display='';" />
+                <span class="avatar-fallback" id="bot-avatar-fallback" style="display:none;">🐰</span>
               </div>
               <input type="file" id="bot-avatar-input" accept="image/*" hidden />
               <span class="nickname editable" id="bot-nickname" contenteditable="false">沈星回</span>
@@ -45,8 +45,8 @@
             </div>
             <div class="avatar-block">
               <div class="avatar user-avatar" id="user-avatar-wrapper">
-                <img id="user-avatar-img" src="" alt="" />
-                <span class="avatar-fallback" id="user-avatar-fallback">🦊</span>
+                <img id="user-avatar-img" class="has-src" src="/static/avatars/default-user.png" alt="" onerror="this.classList.remove('has-src');this.style.display='none';this.nextElementSibling.style.display='';" />
+                <span class="avatar-fallback" id="user-avatar-fallback" style="display:none;">🦊</span>
               </div>
               <input type="file" id="user-avatar-input" accept="image/*" hidden />
               <span class="nickname editable" id="user-nickname" contenteditable="false">你</span>
@@ -360,7 +360,7 @@
         <div class="footprints-tabs">
           <button class="fp-tab-btn active" data-fptab="photos">照片墙</button>
           <button class="fp-tab-btn" data-fptab="notes">便签板</button>
-          <button class="fp-tab-btn" data-fptab="moments">他的动态</button>
+          <button class="fp-tab-btn" data-fptab="moments">动态</button>
         </div>
 
         <!-- Sub-tab: Photos -->
@@ -384,6 +384,9 @@
 
         <!-- Sub-tab: Bot Moments -->
         <div class="fp-panel" id="fp-moments">
+          <div class="fp-panel-actions">
+            <button class="footprints-upload-btn" id="fp-post-moment-btn">+ 发动态</button>
+          </div>
           <div class="fp-moments-list" id="fp-moments-list">
           </div>
         </div>
@@ -396,21 +399,7 @@
       <div class="settings-container">
         <h2 class="settings-title">⚙️ 设置</h2>
 
-        <!-- Settings Card 1: Features -->
-        <div class="settings-card">
-          <div class="settings-card-planet">
-            <img src="/assets/card-features.png" alt="" class="planet-img" onerror="this.onerror=null;this.src='/static/icons/card-features.png';" />
-            <div class="planet-fallback"></div>
-          </div>
-          <div class="settings-card-meteor"></div>
-          <div class="settings-card-meteor settings-card-meteor-2"></div>
-          <div class="settings-card-body">
-            <h3 class="settings-card-title">功能设置</h3>
-            <p class="settings-card-desc">更多设置即将到来</p>
-          </div>
-        </div>
-
-        <!-- Settings Card 2: Appearance -->
+        <!-- Settings Card 1: Appearance -->
         <div class="settings-card">
           <div class="settings-card-planet">
             <img src="/assets/card-appearance.png" alt="" class="planet-img" onerror="this.onerror=null;this.src='/static/icons/card-appearance.png';" />
@@ -439,6 +428,10 @@
               </button>
               <button class="theme-dot" data-theme="dark" title="深色">
                 <span class="theme-dot-inner" style="background: linear-gradient(135deg, #1a1525, #a78bda, #0e0c14);"></span>
+              </button>
+              <button class="theme-dot theme-dot-custom" data-theme="custom" title="自定义颜色">
+                <span class="theme-dot-inner theme-dot-custom-inner">✦</span>
+                <input type="color" id="custom-theme-color-input" class="custom-color-input" value="#a78bda" />
               </button>
             </div>
 
@@ -478,6 +471,33 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings Card 2: Features -->
+        <div class="settings-card">
+          <div class="settings-card-planet">
+            <img src="/assets/card-features.png" alt="" class="planet-img" onerror="this.onerror=null;this.src='/static/icons/card-features.png';" />
+            <div class="planet-fallback"></div>
+          </div>
+          <div class="settings-card-meteor"></div>
+          <div class="settings-card-meteor settings-card-meteor-2"></div>
+          <div class="settings-card-body">
+            <h3 class="settings-card-title">功能设置</h3>
+            <div class="settings-feature-row">
+              <div class="settings-feature-info">
+                <span class="settings-feature-label">清除缓存</span>
+                <span class="settings-feature-hint">清除 Service Worker 缓存并重载页面，解决更新后样式/图标不刷新的问题</span>
+              </div>
+              <button class="settings-action-btn" id="btn-clear-cache">清除并刷新</button>
+            </div>
+            <div class="settings-feature-row">
+              <div class="settings-feature-info">
+                <span class="settings-feature-label">重置本地状态</span>
+                <span class="settings-feature-hint">清除浏览器本地存储（主题、示例照片等前端状态），不影响服务端数据</span>
+              </div>
+              <button class="settings-action-btn settings-action-btn-danger" id="btn-clear-localstorage">重置</button>
             </div>
           </div>
         </div>

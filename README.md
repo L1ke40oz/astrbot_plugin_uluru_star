@@ -13,6 +13,7 @@
 | ✦ 划线 | 选中文字划线，高亮显示，支持取消，自动通知 Bot |
 | 📌 书签 | 放置书签标记阅读窗口起点，可视化高亮传入范围 |
 | ✓ 打卡 | 章节完成打卡，触发 Bot 生成章节记忆摘要 |
+| 📝 书评区 | 每章底部可写书评，Bot 自动回复，支持查看历史书评 |
 | 📑 笔记 | 按书籍/章节查看所有划线，点击跳转回原文 |
 | 💬 阅读聊天 | 可拖拽悬浮按钮 + 可拖拽聊天面板，与 Bot 聊书 |
 | 🤖 Bot 自主阅读 | 后台自动推进进度 + 生成章节记忆，概率性主动分享 |
@@ -20,13 +21,14 @@
 | 🧠 章节记忆 | Bot 读完每章后生成 150-200 字摘要，持久化存储 |
 | 🔧 LLM 工具 | Bot 可主动调用工具读书/回忆对话（按需加载） |
 | 🐾 宠物屋 | 像素宠物养成：投喂、摸摸、捏宠物自定义外观 |
-| 📸 足迹板 | 照片墙、便签纸条、Bot 动态（朋友圈风格） |
-| 🗂 小窝 | 记忆管理、Bot 动态、纸条箱、阅读进度、连接状态 |
+| 📸 足迹板 | 照片墙（含示例照片）、便签纸条、Bot/用户动态 |
+| 🗂 小窝 | 记忆管理、动态、纸条箱、阅读进度、连接状态 |
 | 📊 阅读统计 | 主页展示共读数据（书架数、章节数、天数等） |
-| 🎨 主题系统 | 6 种色系（星紫/雾蓝/樱粉/苔绿/暖茶/深色） |
+| 🎨 主题系统 | 6 种预设色系 + 自定义颜色（色盘选取，自动生成完整主题） |
 | ✦ 粒子动效 | 可配置形状（爱心/四芒星/圆点/雪花）和颜色 |
 | 📱 PWA | 支持添加到手机桌面 |
 | 🔄 数据持久化 | 头像/昵称/封面/主题/进度全部服务端存储 |
+| ⚙️ 缓存管理 | 清除 Service Worker 缓存、重置本地状态 |
 
 ## 架构
 
@@ -49,7 +51,11 @@ astrbot_plugin_uluru_star/
 │   ├── manifest.json           # PWA 配置
 │   ├── sw.js                   # Service Worker（离线缓存）
 │   ├── planet.png              # 设置页装饰图
-│   └── icons/                  # 底部导航 + 手风琴卡片图标
+│   ├── icons/                  # 底部导航 + 手风琴卡片图标
+│   │   └── example-photo.jpg   # 照片墙示例照片（无照片时展示）
+│   └── avatars/                # 默认头像资源
+│       ├── default-bot.png     # Bot 默认头像
+│       └── default-user.png    # 用户默认头像
 └── core/
     ├── __init__.py
     ├── session_manager.py      # 按书籍管理对话会话（持久化到 JSON）
@@ -67,7 +73,7 @@ astrbot_plugin_uluru_star/
 - 注册 AstrBot 插件（`@register`）
 - 初始化所有核心组件
 - 注册 `/乌鲁鲁星` 命令
-- 注册 `on_llm_request` 钩子（注入书架提示到 LLM 上下文）
+- 注册 `on_llm_request` 钩子（注入书架提示 + 足迹上下文到 LLM）
 - 注册 LLM 工具（`read_bookhouse_chapter`、`recall_bookhouse_chat`）
 - 启动后台任务（WebUI、Bot 阅读、宠物通知）
 - 管理 AstrBot 对话快照
@@ -95,10 +101,11 @@ astrbot_plugin_uluru_star/
 ### core/bot_reader.py — Bot 阅读器
 
 - 后台定时阅读循环（可配置间隔）
-- 章节记忆生成（调用 LLM 总结）
+- 章节记忆生成（调用 LLM 总结，含对话历史 + 书评 + 划线）
 - 用户进度追踪（高水位模式）
 - 主动消息发送（避免打断活跃对话）
 - Bot 动态生成（足迹板碎碎念）
+- 接收 `session_manager` 引用以读取聊天历史用于摘要生成
 
 ### core/pet_house_manager.py — 宠物屋管理
 
@@ -116,6 +123,7 @@ astrbot_plugin_uluru_star/
 - 所有 REST API 端点
 - 静态文件服务
 - Profile 持久化
+- 足迹上下文注入（便签 + 动态注入到 LLM 上下文）
 
 ### templates/ — 前端
 
@@ -161,8 +169,15 @@ plugin_data/astrbot_plugin_uluru_star/
 
 每次 QQ 等平台触发 LLM 请求时，插件注入轻量书架提示：
 - 书名列表 + 双方阅读进度百分比
+- 最近 3 条便签内容（含 Bot 回复）
+- 最近 3 条动态内容
 - 提示 Bot 可调用工具获取详细内容
 - 自动清理历史注入（防止上下文膨胀）
+
+注入方式可通过 `injection_method` 配置：
+- `system_prompt`：注入到不可见的系统提示词（默认）
+- `user_message_before`：注入到用户消息前（可见）
+- `user_message_after`：注入到用户消息后（可见）
 
 设计原则：不在系统提示中塞大量内容，而是通过工具按需加载。
 
@@ -177,10 +192,11 @@ plugin_data/astrbot_plugin_uluru_star/
 ### 3. 章节记忆系统
 
 Bot 读完一章后（打卡/工具调用/自动推进），调用 LLM 生成 150-200 字摘要：
-- 输入：章节原文（前 1500 字）+ 用户划线
+- 输入：章节原文（前 1500 字）+ 用户划线 + 聊天历史（最近 20 条）+ 书评
 - 输出：从 Bot 视角的故事总结 + 互动记忆
-- 去重：已有记忆的章节不会重复生成
+- 去重：已有记忆的章节不会重复生成（除非 `force=True`）
 - Bot 进度严格基于已生成记忆的章节数
+- 提交书评时自动触发 `generate_chapter_summary(force=True)` 重新生成
 
 ### 4. LLM 工具
 
@@ -202,7 +218,7 @@ Bot 读完一章后（打卡/工具调用/自动推进），调用 LLM 生成 15
 
 ### 6. 宠物屋系统
 
-- 时间衰减：饥饿每小时 -5，心情每小时 -3（仅饥饿<30时）
+- 时间衰减：饥饿每小时 -5，心情每小时 -3（仅饥饿<30时衰减）
 - 动画状态：mood<20→sad, hunger<30→hungry, mood>70→happy, 否则→idle
 - 投喂：饥饿+30（上限100），非瞬间回满
 - 摸摸：心情+5~15
@@ -210,14 +226,27 @@ Bot 读完一章后（打卡/工具调用/自动推进），调用 LLM 生成 15
 - 渲染：16×16 像素网格 → CSS box-shadow 字符串
 - 通知：心情<20 时通过 QQ 发送提醒
 - 可配置开关：`pet_house.enabled` 控制是否启用
+- 空状态：无宠物时显示居中提示 "还没有宠物，添加一只吧 🐾"
 
-### 7. Bot 动态
+### 7. Bot 动态与用户动态
 
 后台定时任务（可配置间隔，默认 4-8 小时）：
 - 结合时间、最近阅读、章节记忆生成碎碎念
 - 保存到 profile.json 的 footprints 列表
 - 前端以朋友圈风格展示，支持点赞和回复
 - 动态使用 Bot 昵称 + 头像（来自 profile 配置）
+- 动态 Tab 名称为"动态"
+
+用户也可以发布动态：
+- 点击 "+ 发动态" 按钮发布
+- 用户动态显示用户头像和昵称
+- Bot 自动点赞并异步回复评论
+- Bot 和用户的点赞独立追踪（`bot_liked` / `user_liked`）
+
+评论支持回复：
+- 点击某条评论可回复该评论者
+- 显示格式为 "A 回复 B：内容"
+- Bot 回复时包含完整回复链作为对话上下文
 
 ### 8. 主动消息分段发送
 
@@ -238,6 +267,7 @@ Bot 发送主动消息时支持按 `message_separator` 正则分段：
 - 拖拽后位置持久化到服务端
 - 分页浏览照片（每页 6 张）
 - 便签纸条同样支持拖拽和分页
+- 无照片时展示内置示例照片（`icons/example-photo.jpg`），可删除（localStorage）、可拖拽
 
 ### 11. 用户进度与打卡
 
@@ -251,15 +281,54 @@ Bot 发送主动消息时支持按 `message_separator` 正则分段：
 所有 LLM 调用统一使用 persona 作为 system_prompt：
 - `chat_engine.py`：阅读聊天
 - `bot_reader.py`：章节记忆生成、主动消息、Bot 动态
-- `webui_server.py`：便签回复、动态回复
+- `webui_server.py`：便签回复、动态回复、用户动态回应
 - 人格解析优先级：插件覆盖 > 指定人格 > AstrBot 默认人格
 
-### 13. 轻量书架注入
+### 13. 轻量书架注入 + 足迹上下文
 
 LLM 上下文注入采用工具模式（非全量记忆注入）：
 - 仅注入书名列表 + 双方进度百分比（~200字）
+- 注入最近 3 条便签和最近 3 条动态
 - 详细内容通过 `read_bookhouse_chapter` / `recall_bookhouse_chat` 工具按需加载
 - 自动清理历史注入防止上下文膨胀
+- 注入位置由 `injection_method` 配置控制
+
+### 14. 自定义提示词
+
+开启 `custom_prompts_enabled` 后，以下场景的 LLM 提示词可在配置面板中自定义：
+- 便签回复（`prompt_note_reply`）
+- 动态评论回复（`prompt_moment_reply`）
+- 回应用户动态（`prompt_react_to_user_moment`）
+- Bot 自动发动态（`prompt_bot_dynamics`）
+- 章节总结（`prompt_chapter_summary`）
+
+关闭时使用内置默认提示词。
+
+### 15. 书评系统
+
+每章底部有书评区：
+- 显示该章已有书评列表
+- 提交书评表单
+- 提交后 Bot 自动回复（受 `auto_reply_on_review` 配置控制）
+- Bot 回复保存在书评记录的 `bot_reply` 字段
+- 提交书评同时触发章节记忆重新生成（`force=True`）
+
+### 16. 异步回复轮询
+
+便签和动态的 Bot 回复采用异步模式：
+- 前端提交后每 2 秒轮询一次
+- 最长轮询 30 秒
+- 适用于便签回复和动态评论回复
+
+### 17. 默认头像与主题
+
+- Bot 和用户头像默认使用自定义图片（`avatars/default-bot.png`、`avatars/default-user.png`）
+- 主题色盘新增 "✦" 自定义颜色点，点击打开原生取色器
+- 选取颜色后自动生成完整主题色系
+
+### 18. 记忆归档昵称
+
+记忆详情页中的对话使用用户配置的昵称显示，而非硬编码名称。
 
 ## 配置项
 
@@ -270,7 +339,6 @@ LLM 上下文注入采用工具模式（非全量记忆注入）：
 | WebUI | port | 端口 | 1016 |
 | - | auto_reply_on_highlight | 划线时自动触发回复 | true |
 | - | auto_reply_on_review | 书评时自动触发回复 | true |
-| - | auto_reply_on_note | 纸条时自动触发回复 | true |
 | - | reply_to_message_channel | 同时发送到消息通道 | false |
 | - | message_separator | 消息分段正则 | \\$ |
 | Bot 阅读 | enabled | 启用自主阅读 | true |
@@ -284,6 +352,13 @@ LLM 上下文注入采用工具模式（非全量记忆注入）：
 | 高级 | provider | 固定 Provider | (空=默认) |
 | 高级 | persona | 固定人格 | (空=默认) |
 | 高级 | persona_override | 手动人格覆盖 | (空) |
+| 高级 | injection_method | 上下文注入方式 | system_prompt |
+| 高级 | custom_prompts_enabled | 启用自定义提示词 | false |
+| 高级 | prompt_note_reply | 便签回复提示词 | (内置默认) |
+| 高级 | prompt_moment_reply | 动态评论回复提示词 | (内置默认) |
+| 高级 | prompt_react_to_user_moment | 回应用户动态提示词 | (内置默认) |
+| 高级 | prompt_bot_dynamics | Bot 自动发动态提示词 | (内置默认) |
+| 高级 | prompt_chapter_summary | 章节总结提示词 | (内置默认) |
 
 ## 使用方式
 
@@ -298,6 +373,14 @@ LLM 上下文注入采用工具模式（非全量记忆注入）：
 前端文件加载优先级：`custom_templates/` > `templates/`
 
 将修改后的文件放入 `plugin_data/astrbot_plugin_uluru_star/custom_templates/` 即可覆盖默认模板，插件更新不会覆盖自定义文件。
+
+### 设置页
+
+设置页卡片顺序：外观设置 → 功能设置 → 其他。
+
+设置中提供：
+- **清除缓存**：清除 Service Worker 缓存并重新加载页面
+- **重置本地状态**：仅清除插件相关的 localStorage 键值（不影响其他站点数据）
 
 ## 扩展指南
 
@@ -326,6 +409,13 @@ LLM 上下文注入采用工具模式（非全量记忆注入）：
 
 ### 修改人格/提示词
 
+- 配置面板中开启 `custom_prompts_enabled` 后可自定义各场景提示词
 - 配置面板中设置 `persona_override` 可直接覆盖系统提示
 - 或通过 `persona` 选择 AstrBot 中已配置的人格
 - 阅读相关指令在 `chat_engine.py` 的 `_build_system_prompt()` 中
+
+### 添加默认头像/示例照片
+
+- Bot 默认头像：`templates/avatars/default-bot.png`
+- 用户默认头像：`templates/avatars/default-user.png`
+- 照片墙示例照片：`templates/icons/example-photo.jpg`
