@@ -464,8 +464,18 @@ class SharedReadPlugin(Star):
         )
 
         self.context.add_llm_tools(read_tool, recall_tool)
+
+        # Fix handler_module_path: add_llm_tools resolves it from
+        # FunctionTool.__module__ (which is astrbot.core.agent.tool),
+        # not from the plugin module. We override it to the correct path
+        # so AstrBot can properly associate these tools with our plugin.
+        correct_module_path = self.__class__.__module__
+        read_tool.handler_module_path = correct_module_path
+        recall_tool.handler_module_path = correct_module_path
+
         logger.info(
             "乌鲁鲁星: 已注册 LLM 工具 read_bookhouse_chapter, recall_bookhouse_chat"
+            f" (module_path={correct_module_path})"
         )
 
     async def _handle_read_book(self, *args, **kwargs) -> str:
